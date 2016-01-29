@@ -10,7 +10,7 @@
 %%%
 %%% ----------------------------------------------------------
 
--module(regBucket).
+-module(sysRate).
 -id('39/190 55-CNA 113 206 Ux').
 -vsn('/main/R6A_1/R9B/R10A/R12A/R14A/R15A/R18A/R19A/3').
 
@@ -37,60 +37,31 @@
 %%% ----------------------------------------------------------
 %%% Rev    Date        Name     What
 %%% -----  ----------  -------  ------------------------
-%%% R6A_1/1  2008-07-07 etxpell Created
-%%% R6A_1/2  2008-07-08 etxpell Implemented
-%%% R6A_1/3  2008-07-08 etxpell Fixed clear (called from regGen) bug
-%%%
-%%% R6A_1/3  2008-07-08 etxpell HK14518, de-reg starved others...
-%%% R6A_1/5  2008-07-08 etxpell made it more resilient
-%%% R6A_1/6  2009-02-04 etxpell HK26381, added leak_one_more
-%%%				(AD22)
 %%%
 %%% ----------------------------------------------------------
-%%% R10A/1   2009-04-14 etxlnas IPv6 adaptation. Fixed compiler warnings.
-%%%				(LSVxx)
-%%% R10A/2   2009-06-22 etxpell Added rate limiter, safe enqueue, and 
-%%%				efficient cancel
-%%%				(LSV14)
-%%% R10A/3   2009-08-17 etxpell Rate limit init val to disabled
-%%% R10A/4   2009-08-26 etxpell Fixing the del_config
-%%%				(LSV17)
-%%% R10A/5   2009-08-26 etxpell Fixing one Pui many Cnt entries in bucket
-%%%				Adding efficient cancel
-%%%                             (LSV18)
-%%% ----------------------------------------------------------
-%%%
-%%% R12A/1   2009-12-11 etxpell HL23970, overload cause call/2 timeout
-%%%                             (LSV5)
-%%% R12A/2   2010-02-04 etxpell Making bucket leak more traceable
-%%%                             (LSV6)
-%%% R12A/3   2010-02-19 etxpell HL57255: faster dequeue for dead procs
-%%%                             (LSV8)
-%%%
-%%% R14A/1   2010-05-05 etxpell HL83916: limit on leak_one_more
-%%%
-%%%
-%%% R15A/1   2010-05-05 etxpell HN58044: Adding is_empty/0
-%%%
-%%% R18A/1   2012-08-02 epeeraj Changed SGM ref to SGN for CBA Prep
-%%% R18A/2   2012-08-30 epeeraj Reverted CBA Changes in the Legacy System
-%%% R19A/1   2012-12-15 epeeraj Merging from P19 -> R19
-%%% R19A/3   2014-10-21 etxpell HT14216: DT rate corrected
-%%% ----------------------------------------------------------
 
-
-
--behaviour(gen_server).
 
 %% API
--export([enqueue/5]).
--export([cancel/1]).
--export([clear/0]).
--export([leak_one_more/0]).
--export([is_empty/0]).
+-export([define/2]).
+-export([is_request_allowed/1]).
+-export([status/1]).
+
+-export([on/1]).
+-export([off/1]).
+-export([clear/1]).
+-export([list_all_limiters/0]).
+-export([print_all_limiters/0]).
+-export([is_below_limit/1]).
 
 
--export([rate_limit_allow/1]).
+define(Name, Config) -> call({define, Name, Config}).
+
+
+call    
+
+
+
+-export([check_rate/1]).
 
 %% The core rate limiter
 -export([rate_enqueue/0]).
@@ -128,6 +99,29 @@
 -define(TAB, regBucket).
 
 -include("reg.hrl").
+
+f() ->
+    do_stuff(),
+    case sysRate:allow_request(Key) of
+    	 true -> do_more_stuff();
+	 _ -> reject
+    end.
+
+f() ->
+    do_stuff(),
+    case sysRate:check_rate(Key) of
+    	 true -> do_more_stuff();
+	 _ -> reject
+    end.
+
+f() ->
+    do_stuff(),
+    case sysRate:allow(Key) of
+    	 true -> do_more_stuff();
+	 _ -> reject
+    end.
+
+
 
 %%====================================================================
 %% API
