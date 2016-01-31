@@ -39,15 +39,176 @@
 %%% -----  ----------  -------  ------------------------
 %%%
 %%% ----------------------------------------------------------
+ 
+%%------------------
+%% The supervision server
+-export([start_link/0]).
+-export([stop/0]).
+
+%%------------------
+%% The bucket interface
+-export([define/2]).
+-export([is_limiter_running/1]).
+-export([is_request_allowed/1]).
+
+%%------------------
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+	 terminate/2, code_change/3]).
 
 
+-behaviour(gen_server).
+
+-record(s, {things}).
+-record(lim, {state=on, rate=100, period=100, level=0, limit=100}).
+
+
+%%------------------
+%% The supervision server
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+stop() ->
+    server_call(stop).
+
+server_call(Req) ->
+    gen_server:call(?MODULE, Req).
+
+
+init([]) ->
+    new_pid_table(),
+    {ok, #s{}}.
+
+handle_call({define, Name, Config}, _From, S) ->
+    {reply, start_limiter(Name, Config), S};
+handle_call(stop, _From, S) ->
+    {stop, normal, ok, S};
+handle_call(_Request, _From, S) ->
+    Reply = ok,
+    {reply, Reply, S}.
+
+handle_cast(_Msg, S) ->
+    {noreply, S}.
+
+handle_info(_Info, S) ->
+    {noreply, S}.
+
+terminate(_Reason, _S) ->
+    io:format("termn", []),
+    del_all_pids(),
+    ok.
+
+code_change(_OldVsn, S, _Extra) ->
+    {ok, S}.
+
+
+
+%%------------------
+%% The bucket
+define_help() ->
+    ["defines a rate limit bucket.",
+     "Name is term(), Config is bucket configuration property list",
+     "Example sysRate:define({netid, 4}, [{rate, 20}]).",
+     "which defines a bucket that will allow 20 requests per second",
+     "",
+     "The bucket does not buffer requests, but is simply a counter. It
+     is what is called a meter on the wikipedia page for leaky
+     buckets"].
+
+define(Name, Config) ->
+    server_call({define, Name, Config}).
+
+is_request_allowed(Name) ->
+    limiter_call(Name, is_request_allowed).
+
+limiter_call(Name, Req) ->
+    limiter_call2(limiter_pid(Name), Req).
+
+limiter_call2(Pid, Req) when is_pid(Pid) ->
+    MonRef = erlang:monitor(process, Pid),
+    Pid ! {call, {self(), MonRef}, Req},
+    receive
+        {answer, MonRef, Ans} ->
+            erlang:demonitor(MonRef),
+            Ans;
+        {'DOWN', MonRef, process, _, _} ->
+            {error, noproc}
+    end;
+limiter_call2(_, _) ->
+    {error, bad_name}.
+
+start_limiter(Name, Config) ->
+    ins_pid(Name, spawn_link(fun() -> init_limiter(Name, Config) end)).
+
+stop_limiter(Pid) ->
+    limiter_call(Pid, stop).
+
+init_limiter(Name, Config) ->
+    register_limiter_name(Name),
+    loop_limiter(init_limiter_state(Config)).
+
+register_limiter_name(Name) ->
+    %% change the register into sysProc
+    register(Name, self()).
+
+limiter_pid(Pid) when is_pid(Pid) ->
+    Pid;
+limiter_pid(Name) ->
+    whereis(Name).
+
+loop_limiter(stop) ->
+    ok;
+loop_limiter(Lim) ->
+    receive
+        {call, From, Req} ->
+            {Res, NewLim} = handle_limiter_call(Req, Lim),
+            send_call_answer(From, Res),
+            loop_limiter(NewLim)
+    end.
+    
+handle_limiter_call(stop, _) ->
+    {ok, stop};
+handle_limiter_call(is_request_allowed, Lim) ->
+    {true, Lim}.
+
+send_call_answer({Pid, Ref}, Ans) ->
+    Pid ! {answer, Ref, Ans}.
+
+init_limiter_state(_Config) ->
+    #lim{}.
+
+is_limiter_running(Name) ->    
+    is_pid(limiter_pid(Name)).
+
+ins_pid(Name, Pid) ->
+    ets:insert(pid_table_name(), {Name, Pid}).
+
+new_pid_table() ->
+    ets:new(pid_table_name(), [set, public, named_table]).    
+
+del_all_pids() ->
+    [stop_limiter(Pid) || {_, Pid} <- all_pids()].
+
+all_pids() ->
+    ets:tab2list(pid_table_name()).
+
+pid_table_name() ->
+    sysRate_pids.
+
+
+
+%%% OLD stuff ------------------
+
+
+
+-ifdef(ashags).
 %% API
 -export([define/2]).
 -export([is_request_allowed/1]).
 -export([status/1]).
 
 -export([on/1]).
--export([off/1]).
+-export([off/1]). 
 -export([clear/1]).
 -export([list_all_limiters/0]).
 -export([print_all_limiters/0]).
@@ -85,7 +246,7 @@ call
 
 -define(ONE_MORE_MAX, 200).
 
--record(state, {one_more_c=?ONE_MORE_MAX, rate_bucket}).
+-record(s, {one_more_c=?ONE_MORE_MAX, rate_bucket}).
 
 -record(regBucket, {key, pid, msg, netid, role, local, 
 		    spare1, spare2, spare3}).
@@ -189,8 +350,8 @@ start_link() ->
 
 
 %%--------------------------------------------------------------------
-%% Function: init(Args) -> {ok, State} |
-%%                         {ok, State, Timeout} |
+%% Function: init(Args) -> {ok, S} |
+%%                         {ok, S, Timeout} |
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
@@ -198,93 +359,93 @@ start_link() ->
 init([]) ->
     T = get_interval(), %%regLib:lookup_config(bucket_interval, 100),
     erlang:send_after(T, self(), leak),
-    {ok, #state{rate_bucket=init_core_rate()}}.
+    {ok, #s{rate_bucket=init_core_rate()}}.
 
 
 %%--------------------------------------------------------------------
-%% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
-%%                                      {reply, Reply, State, Timeout} |
-%%                                      {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, Reply, State} |
-%%                                      {stop, Reason, State}
+%% Function: %% handle_call(Request, From, S) -> {reply, Reply, S} |
+%%                                      {reply, Reply, S, Timeout} |
+%%                                      {noreply, S} |
+%%                                      {noreply, S, Timeout} |
+%%                                      {stop, Reason, Reply, S} |
+%%                                      {stop, Reason, S}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
-handle_call(Req, _From, State) ->
+handle_call(Req, _From, S) ->
     try
-	handle_call2(Req, _From, upgrade_state(State))
+	handle_call2(Req, _From, upgrade_s(S))
     catch
 	_:_Err ->
 	    ?ERRDBG("handle call crashed", _Err),
-	    {reply, error, State}
+	    {reply, error, S}
     end.
 
-handle_call2({core_rate, Cmd}, _From, State) ->
-    do_core_rate_cmd(Cmd, State);
-handle_call2({enqueue, B}, _From, State) ->
-    {reply, q_enqueue(B), State};
-handle_call2({cancel, Key}, _From, State) ->
-    {reply, q_cancel(Key), State};
-handle_call2(leak_one_more, _From, State=#state{one_more_c=C})
+handle_call2({core_rate, Cmd}, _From, S) ->
+    do_core_rate_cmd(Cmd, S);
+handle_call2({enqueue, B}, _From, S) ->
+    {reply, q_enqueue(B), S};
+handle_call2({cancel, Key}, _From, S) ->
+    {reply, q_cancel(Key), S};
+handle_call2(leak_one_more, _From, S=#s{one_more_c=C})
   when C < 0 ->
     ?ERRDBG("leak_one_more, rate limit", []),
-    {reply, ok, State};
-handle_call2(leak_one_more, _From, State) ->
+    {reply, ok, S};
+handle_call2(leak_one_more, _From, S) ->
     ?DBG("leak_one_more", []),
     catch leak(1),
-    {reply, ok, dec_one_more(State)}.
+    {reply, ok, dec_one_more(S)}.
 
 
-upgrade_state(S=#state{}) -> 
+upgrade_s(S=#s{}) -> 
     S;
-upgrade_state({state, OneMoreC}) ->
-    #state{one_more_c=OneMoreC}.
+upgrade_s({s, OneMoreC}) ->
+    #s{one_more_c=OneMoreC}.
 
 
 %%--------------------------------------------------------------------
-%% Function: handle_cast(Msg, State) -> {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, State}
+%% Function: handle_cast(Msg, S) -> {noreply, S} |
+%%                                      {noreply, S, Timeout} |
+%%                                      {stop, Reason, S}
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
-handle_cast(_Msg, State) ->
-    {noreply, upgrade_state(State)}.
+handle_cast(_Msg, S) ->
+    {noreply, upgrade_s(S)}.
 
 %%--------------------------------------------------------------------
-%% Function: handle_info(Info, State) -> {noreply, State} |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
+%% Function: handle_info(Info, S) -> {noreply, S} |
+%%                                       {noreply, S, Timeout} |
+%%                                       {stop, Reason, S}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-handle_info(leak, State) ->
+handle_info(leak, S) ->
     T = try leak()
 	catch
 	    _:_ ->
 		get_interval()
 	end,
     erlang:send_after(T, self(), leak),
-    {noreply, reset_one_more(upgrade_state(State))};
-handle_info(core_rate_tick, State) ->
-    {noreply, core_rate_leak(upgrade_state(State))};
-handle_info(_Info, State) ->
-    {noreply, upgrade_state(State)}.
+    {noreply, reset_one_more(upgrade_s(S))};
+handle_info(core_rate_tick, S) ->
+    {noreply, core_rate_leak(upgrade_s(S))};
+handle_info(_Info, S) ->
+    {noreply, upgrade_s(S)}.
 
 %%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
+%% Function: terminate(Reason, S) -> void()
 %% Description: This function is called by a gen_server when it is about to
 %% terminate. It should be the opposite of Module:init/1 and do any necessary
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
+terminate(_Reason, _S) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
+%% Func: code_change(OldVsn, S, Extra) -> {ok, NewS}
+%% Description: Convert process s when code is changed
 %%--------------------------------------------------------------------
-code_change(_OldVsn, State, _Extra) ->
-    {ok, upgrade_state(State)}.
+code_change(_OldVsn, S, _Extra) ->
+    {ok, upgrade_s(S)}.
 
 %%--------------------------------------------------------------------
 %%% Internal functions
@@ -441,8 +602,8 @@ rate_limit_allow(_, _) ->
 
 
 
-dec_one_more(S=#state{one_more_c=C}) -> S#state{one_more_c=C-1}.
-reset_one_more(S) -> S#state{one_more_c=?ONE_MORE_MAX}.
+dec_one_more(S=#s{one_more_c=C}) -> S#s{one_more_c=C-1}.
+reset_one_more(S) -> S#s{one_more_c=?ONE_MORE_MAX}.
 
 
 %% -----------------------------
@@ -452,9 +613,9 @@ init_core_rate() ->
     start_core_rate_timer(read_core_rate_config()).
 
 
-do_core_rate_cmd(Cmd, S=#state{rate_bucket=Bucket}) ->
+do_core_rate_cmd(Cmd, S=#s{rate_bucket=Bucket}) ->
     {Res, NewBucket} = do_core_rate_cmd2(Cmd, assure_bucket(Bucket)),
-    {reply, Res, S#state{rate_bucket=NewBucket}}.
+    {reply, Res, S#s{rate_bucket=NewBucket}}.
 
 
 do_core_rate_cmd2(allow, B) ->
@@ -500,8 +661,8 @@ core_rate_allow(B) ->
 
 %%-------------------
 %% The leaking
-core_rate_leak(S=#state{rate_bucket=Bucket}) ->
-    S#state{rate_bucket=start_core_rate_timer(core_rate_leak(Bucket))};
+core_rate_leak(S=#s{rate_bucket=Bucket}) ->
+    S#s{rate_bucket=start_core_rate_timer(core_rate_leak(Bucket))};
 core_rate_leak(B=#regRateBucket{level=Level}) ->
     NewTS = micro_ts(),
     Leak = calc_leak(NewTS, B),
@@ -667,4 +828,6 @@ del_config() ->
 
 
 
+
+-endif.
 

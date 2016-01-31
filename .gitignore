@@ -3,6 +3,7 @@
 out
 ebin
 .eunit
+.rebar
 REG_CXA112470/
 REG1_CXC138789/
 Makefile
