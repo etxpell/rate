@@ -94,7 +94,6 @@ handle_info(_Info, S) ->
     {noreply, S}.
 
 terminate(_Reason, _S) ->
-    io:format("termn", []),
     del_all_pids(),
     ok.
 
