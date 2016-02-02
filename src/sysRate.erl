@@ -52,6 +52,10 @@
 -export([is_request_allowed/1]).
 
 %%------------------
+%% For testing
+-export([tick/1]).
+
+%%------------------
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
@@ -60,7 +64,10 @@
 -behaviour(gen_server).
 
 -record(s, {things}).
--record(lim, {state=on, rate=100, period=100, level=0, limit=100}).
+-record(lim, {state=on, rate=100, period=100, level=0, limit=100, 
+              leak_ts=0,
+              manual_tick=false,
+              auto_burst_limit=true}).
 
 
 %%------------------
@@ -120,6 +127,9 @@ define(Name, Config) ->
 is_request_allowed(Name) ->
     limiter_call(Name, is_request_allowed).
 
+tick(Name) ->
+    limiter_call(Name, tick).
+
 limiter_call(Name, Req) ->
     limiter_call2(limiter_pid(Name), Req).
 
@@ -167,14 +177,40 @@ loop_limiter(Lim) ->
     
 handle_limiter_call(stop, _) ->
     {ok, stop};
+handle_limiter_call(tick, Lim) ->
+    {ok, timer_tick(Lim)};
 handle_limiter_call(is_request_allowed, Lim) ->
-    {true, Lim}.
+    case is_bucket_below_limit(Lim) of
+        true ->
+            {true, inc_bucket_level(Lim)};
+        _ ->
+            {false, Lim}
+    end.
 
 send_call_answer({Pid, Ref}, Ans) ->
     Pid ! {answer, Ref, Ans}.
 
-init_limiter_state(_Config) ->
-    #lim{}.
+init_limiter_state(Config) ->
+    update_limiter_config(#lim{}, Config).
+
+update_limiter_config(Lim, Config) ->
+    lists:foldl(fun(C, A) -> update_one_config_item(C, A) end,
+                Lim,
+                Config).
+
+update_one_config_item({rate, Rate}, Lim) ->    
+    maybe_update_burst_limit(Lim#lim{rate=Rate});
+update_one_config_item({period, Time}, Lim) -> 
+    Lim#lim{period=Time};
+update_one_config_item(manual_tick, Lim) -> 
+    Lim#lim{manual_tick=true};
+update_one_config_item(_, Lim) -> 
+    Lim.
+
+maybe_update_burst_limit(Lim=#lim{rate=Rate, auto_burst_limit=true}) ->
+    Lim#lim{limit=Rate};
+maybe_update_burst_limit(Lim) ->
+    Lim.
 
 is_limiter_running(Name) ->    
     is_pid(limiter_pid(Name)).
@@ -194,6 +230,68 @@ all_pids() ->
 pid_table_name() ->
     sysRate_pids.
 
+
+%%------------------
+%% Lowlevel bucket stuff
+
+is_bucket_below_limit(#lim{level=Level, limit=Limit}) when Level < Limit ->
+    true;
+is_bucket_below_limit(_) ->
+    false.
+
+inc_bucket_level(Lim=#lim{level=Level}) ->
+    Lim#lim{level=Level+1}.
+
+timer_tick(Lim=#lim{manual_tick=true}) ->
+    do_manual_tick(Lim).
+
+do_manual_tick(Lim=#lim{leak_ts=OldTS, level=Level, period=Period, rate=Rate}) ->
+    NewTS = timestamp_add_wrap(OldTS, Period),
+%%    Leak = calc_leak(NewTS, Lim),
+    AdjustedNewTS = if OldTS > NewTS -> NewTS+1000-OldTS;
+		       true -> NewTS
+		    end,
+    LeakedSoFar = if OldTS > NewTS -> 0;
+		     true -> round(OldTS*Rate/1000)
+		  end,
+    
+    LeakUpTillNewTS = round(AdjustedNewTS*Rate/1000),
+    
+    Leak = LeakUpTillNewTS - LeakedSoFar,
+
+    NewLevel = max((Level-Leak), 0),
+    %% io:format(user, "NewTS: ~p, OldTS: ~p, AdjNew: ~p,"
+    %%           "LeakSoFar: ~p, LeakNew: ~p, Lvl: ~p, NewLvl: ~p~n", 
+    %%           [NewTS, OldTS, AdjustedNewTS, LeakedSoFar, LeakUpTillNewTS, 
+    %%            Level, NewLevel]),
+    
+    Lim#lim{leak_ts=NewTS, level=NewLevel}.
+
+    
+calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
+    AdjustedNewTS = if OldTS > NewTS -> NewTS+1000-OldTS;
+		       true -> NewTS
+		    end,
+    LeakedSoFar = if OldTS > NewTS -> 0;
+		     true -> round(OldTS*Rate/1000)
+		  end,
+    
+    LeakUpTillNewTS = round(AdjustedNewTS*Rate/1000),
+    
+    LeakUpTillNewTS - LeakedSoFar.
+
+timestamp_add_wrap(TS, AddMs) ->
+    case TS+AddMs of
+        X when X >= 1000 -> X -1000;
+        X -> X
+    end.
+             
+%% -----------------------------
+%% timestamp primitives
+ts_ms() ->
+    element(3, ts()) div 1000.
+ts() ->
+    os:timestamp().
 
 
 %%% OLD stuff ------------------
