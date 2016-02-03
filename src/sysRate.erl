@@ -243,17 +243,11 @@ inc_bucket_level(Lim=#lim{level=Level}) ->
     Lim#lim{level=Level+1}.
 
 timer_tick(Lim=#lim{manual_tick=true}) ->
-    do_manual_tick(Lim).
+    leak(timestamp_for_tick(Lim), Lim).
 
-do_manual_tick(Lim=#lim{leak_ts=OldTS, level=Level, period=Period}) ->
-    NewTS = timestamp_add_wrap(OldTS, Period),
+leak(NewTS, Lim=#lim{level=Level}) ->
     Leak = calc_leak(NewTS, Lim),
     NewLevel = max((Level-Leak), 0),
-    %% io:format(user, "OldTS: ~4w, NewTS: ~4w, "
-    %%           "LeakSoFar: ~p, LeakNew: ~p, LeakAdj: ~p, Leak: ~p, "
-    %%           "Lvl: ~p, NewLvl: ~p~n", 
-    %%           [OldTS, NewTS, LeakedSoFar, LeakUpTillNewTS, 
-    %%            LeakAdjustFromPrevSecond, Leak, Level, NewLevel]),
     Lim#lim{leak_ts=NewTS, level=NewLevel}.
 
 calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
@@ -283,7 +277,15 @@ calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
 time_to_leak(Time, Rate) ->
     round(Time*Rate/1000).
 
-timestamp_add_wrap(TS, AddMs) ->
+timestamp_for_tick(Lim=#lim{manual_tick=true}) ->
+    timestamp_for_manual_tick(Lim);
+timestamp_for_tick(_) ->
+    ts_ms().
+
+timestamp_for_manual_tick(#lim{leak_ts=OldTS, period=Period}) ->
+    timestamp_add_wrap_on_second(OldTS, Period).
+
+timestamp_add_wrap_on_second(TS, AddMs) ->
     case TS+AddMs of
         X when X >= 1000 -> X -1000;
         X -> X
