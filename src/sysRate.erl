@@ -193,6 +193,10 @@ send_call_answer({Pid, Ref}, Ans) ->
 init_limiter_state(Config) ->
     update_limiter_config(#lim{}, Config).
 
+
+%%------------------
+%% Configuration stuff
+
 update_limiter_config(Lim, Config) ->
     lists:foldl(fun(C, A) -> update_one_config_item(C, A) end,
                 Lim,
