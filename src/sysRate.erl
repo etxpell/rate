@@ -248,36 +248,13 @@ timer_tick(Lim=#lim{manual_tick=true}) ->
 do_manual_tick(Lim=#lim{leak_ts=OldTS, level=Level, period=Period}) ->
     NewTS = timestamp_add_wrap(OldTS, Period),
     Leak = calc_leak(NewTS, Lim),
-    %% AdjustedNewTS = if OldTS > NewTS -> NewTS+1000-OldTS;
-    %%     	       true -> NewTS
-    %%     	    end,
-    %% LeakAdjustFromPrevSecond = 
-    %%     if OldTS > NewTS -> 
-    %%             LeakedPrevsecond=time_to_leak(OldTS, Rate),
-    %%             Rate - LeakedPrevsecond;
-    %%        true ->
-    %%             0
-    %%     end,
-    
-    %% LeakedSoFar = if OldTS > NewTS -> 0;
-    %%     	     true -> time_to_leak(OldTS, Rate)
-    %%     	  end,
-                                       
-    %% LeakUpTillNewTS = time_to_leak(NewTS, Rate),
-    
-    %% Leak = LeakUpTillNewTS - LeakedSoFar + LeakAdjustFromPrevSecond,
-
     NewLevel = max((Level-Leak), 0),
     %% io:format(user, "OldTS: ~4w, NewTS: ~4w, "
     %%           "LeakSoFar: ~p, LeakNew: ~p, LeakAdj: ~p, Leak: ~p, "
     %%           "Lvl: ~p, NewLvl: ~p~n", 
     %%           [OldTS, NewTS, LeakedSoFar, LeakUpTillNewTS, 
     %%            LeakAdjustFromPrevSecond, Leak, Level, NewLevel]),
-    
     Lim#lim{leak_ts=NewTS, level=NewLevel}.
-
-time_to_leak(Time, Rate) ->
-    round(Time*Rate/1000).
 
 calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
     %% If OldTS > NewTS then we have just passed the second mark. In
@@ -297,22 +274,14 @@ calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
     LeakedSoFar = if OldTS > NewTS -> 0;
 		     true -> time_to_leak(OldTS, Rate)
 		  end,
-                                       
+    
     LeakUpTillNewTS = time_to_leak(NewTS, Rate),
     
     Leak = LeakUpTillNewTS - LeakedSoFar + LeakAdjustFromPrevSecond,
     Leak.
 
-    %% AdjustedNewTS = if OldTS > NewTS -> NewTS+1000-OldTS;
-    %%     	       true -> NewTS
-    %%     	    end,
-    %% LeakedSoFar = if OldTS > NewTS -> 0;
-    %%     	     true -> round(OldTS*Rate/1000)
-    %%     	  end,
-    
-    %% LeakUpTillNewTS = round(AdjustedNewTS*Rate/1000),
-    
-    %% LeakUpTillNewTS - LeakedSoFar.
+time_to_leak(Time, Rate) ->
+    round(Time*Rate/1000).
 
 timestamp_add_wrap(TS, AddMs) ->
     case TS+AddMs of

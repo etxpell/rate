@@ -92,20 +92,49 @@ check_many_rates_test_() ->
        fun() -> run_bucket(10, 300) end},
       {"rate=10, period=130",
        fun() -> run_bucket(10, 130) end},
-      {"rate=10, period=170",
+      {"rate=10, period=470",
        fun() -> run_bucket(10, 470) end},
+      {"rate=10, period=512",
+       fun() -> run_bucket(10, 512) end},
+      {"rate=10, period=830",
+       fun() -> run_bucket(10, 830) end},
+      {"dummy", fun() -> ok end} ]}.
+
+check_many_high_rates_test_() ->
+    {foreach,
+     fun() -> preamble() end,
+     fun(_) -> postamble() end,
+     [
+      {"rate=100, period=50",
+       fun() -> run_bucket(100, 50) end},
+      {"rate=100, period=73",
+       fun() -> run_bucket(100, 73) end},
+      {"rate=100, period=100",
+       fun() -> run_bucket(100, 100) end},
+      {"rate=100, period=200",
+       fun() -> run_bucket(100, 200) end},
+      {"rate=100, period=300",
+       fun() -> run_bucket(100, 300) end},
+      {"rate=100, period=130",
+       fun() -> run_bucket(100, 130) end},
+      {"rate=100, period=470",
+       fun() -> run_bucket(100, 470) end},
+      {"rate=100, period=512",
+       fun() -> run_bucket(100, 512) end},
+      {"rate=100, period=830",
+       fun() -> run_bucket(100, 830) end},
       {"dummy", fun() -> ok end} ]}.
 
 run_bucket(Rate, Period) ->
     sysRate:define(lim1, [{rate, Rate}, manual_tick, {period, Period}]),
     Revoultions = 20*(1+round(1000 / Period)),
-    %% The +1 comes from the burst limit
     TotTime = ((Revoultions)*Period/1000),
     Ok = ok_count(tl(do_run_bucket(lim1, Revoultions, Rate))),
     ActualRate = one_decimal(Ok/(TotTime)),
     %% io:format("Revs: ~p, tot time: ~p, tot: ~p, rate: ~p~n", 
     %%           [Revoultions, TotTime, Ok, ActualRate]),
-    ?assertEqual(10.0, ActualRate).
+    ExpectedRate = one_decimal(Rate),
+    ?assertEqual(ExpectedRate, ActualRate).
 
 one_decimal(X) ->
     round(X*10) / 10.
