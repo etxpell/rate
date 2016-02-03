@@ -251,23 +251,34 @@ do_manual_tick(Lim=#lim{leak_ts=OldTS, level=Level, period=Period, rate=Rate}) -
     AdjustedNewTS = if OldTS > NewTS -> NewTS+1000-OldTS;
 		       true -> NewTS
 		    end,
+    LeakAdjustFromPrevSecond = 
+        if OldTS > NewTS -> 
+                LeakedPrevsecond=time_to_leak(OldTS, Rate),
+                Rate - LeakedPrevsecond;
+           true ->
+                0
+        end,
+    
     LeakedSoFar = if OldTS > NewTS -> 0;
-		     true -> round(OldTS*Rate/1000)
+		     true -> time_to_leak(OldTS, Rate)
 		  end,
+                                       
+    LeakUpTillNewTS = time_to_leak(NewTS, Rate),
     
-    LeakUpTillNewTS = round(AdjustedNewTS*Rate/1000),
-    
-    Leak = LeakUpTillNewTS - LeakedSoFar,
+    Leak = LeakUpTillNewTS - LeakedSoFar + LeakAdjustFromPrevSecond,
 
     NewLevel = max((Level-Leak), 0),
-    %% io:format(user, "NewTS: ~p, OldTS: ~p, AdjNew: ~p,"
-    %%           "LeakSoFar: ~p, LeakNew: ~p, Lvl: ~p, NewLvl: ~p~n", 
-    %%           [NewTS, OldTS, AdjustedNewTS, LeakedSoFar, LeakUpTillNewTS, 
-    %%            Level, NewLevel]),
+    %% io:format(user, "OldTS: ~4w, NewTS: ~4w, "
+    %%           "LeakSoFar: ~p, LeakNew: ~p, LeakAdj: ~p, Leak: ~p, "
+    %%           "Lvl: ~p, NewLvl: ~p~n", 
+    %%           [OldTS, NewTS, LeakedSoFar, LeakUpTillNewTS, 
+    %%            LeakAdjustFromPrevSecond, Leak, Level, NewLevel]),
     
     Lim#lim{leak_ts=NewTS, level=NewLevel}.
 
-    
+time_to_leak(Time, Rate) ->
+    round(Time*Rate/1000).
+
 calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
     AdjustedNewTS = if OldTS > NewTS -> NewTS+1000-OldTS;
 		       true -> NewTS

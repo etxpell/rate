@@ -80,43 +80,44 @@ check_many_rates_test_() ->
      fun() -> preamble() end,
      fun(_) -> postamble() end,
      [
-      %% {"rate=10, period=73",
-      %%  fun() -> run_bucket(10, 73) end},
+      {"rate=10, period=50",
+       fun() -> run_bucket(10, 50) end},
+      {"rate=10, period=73",
+       fun() -> run_bucket(10, 73) end},
       {"rate=10, period=100",
        fun() -> run_bucket(10, 100) end},
+      {"rate=10, period=200",
+       fun() -> run_bucket(10, 200) end},
+      {"rate=10, period=300",
+       fun() -> run_bucket(10, 300) end},
       {"rate=10, period=130",
        fun() -> run_bucket(10, 130) end},
       {"rate=10, period=170",
        fun() -> run_bucket(10, 470) end},
-      {"rate=10, period=512",
-       fun() -> run_bucket(10, 512) end},
-      {"rate=10, period=830",
-       fun() -> run_bucket(10, 830) end},
-      %% {"rate=10, period=931",
-      %%  fun() -> run_bucket(10, 931) end}]}.
       {"dummy", fun() -> ok end} ]}.
 
 run_bucket(Rate, Period) ->
     sysRate:define(lim1, [{rate, Rate}, manual_tick, {period, Period}]),
-    Revoultions = 120*(1+round(1000 / Period)),
+    Revoultions = 20*(1+round(1000 / Period)),
     %% The +1 comes from the burst limit
-    TotTime = (Revoultions*Period/1000),
-    TotalOk = trunc(Rate*TotTime),
-    io:format("Revs: ~p, tot time: ~p, tot: ~p~n", 
-              [Revoultions, TotTime, TotalOk]),
+    TotTime = ((Revoultions)*Period/1000),
     Ok = ok_count(tl(do_run_bucket(lim1, Revoultions, Rate))),
-    ?assertEqual(TotalOk, Ok).
+    ActualRate = one_decimal(Ok/(TotTime)),
+    %% io:format("Revs: ~p, tot time: ~p, tot: ~p, rate: ~p~n", 
+    %%           [Revoultions, TotTime, Ok, ActualRate]),
+    ?assertEqual(10.0, ActualRate).
 
+one_decimal(X) ->
+    round(X*10) / 10.
+    
 ok_count(L) ->
     length(lists:filter(fun(X) -> X end, flat(L))).
 
 do_run_bucket(Lim, 0, Rate) ->
     Res = do_n_requests(Lim, 2*Rate),
-%%    io:format("ok: ~p~n", [ok_count(Res)]),
     [Res];
 do_run_bucket(Lim, Revs, Rate) ->
     Res = do_n_requests(Lim, 2*Rate),
-%%    io:format("ok: ~p~n", [ok_count(Res)]),
     sysRate:tick(Lim),
     [Res | do_run_bucket(Lim, Revs-1, Rate)].
 
