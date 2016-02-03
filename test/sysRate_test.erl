@@ -7,7 +7,7 @@
 
 
 
-start_stop_testX() ->
+start_stop_test() ->
     Res = sysRate:start_link(),
     ?assertMatch({ok, _}, Res),
     {ok, Pid} = Res,
@@ -18,7 +18,7 @@ start_stop_testX() ->
     ?assertEqual(false, is_pid(whereis(sysRate))).
 
 
-define_testX() ->
+define_test() ->
     preamble(),
     ResFalse = sysRate:is_limiter_running(lim1),
     ?assertEqual(false, ResFalse),
@@ -27,7 +27,7 @@ define_testX() ->
     ?assertEqual(true, ResTrue),
     postamble().
 
-simple_rate_testX() ->
+simple_rate_test() ->
     preamble(),
     ?assertEqual(false, sysRate:is_limiter_running(lim1)),
     sysRate:define(lim1, [{rate, 1}, manual_tick]),
@@ -36,7 +36,7 @@ simple_rate_testX() ->
     ?assertEqual(Expected, Res),
     postamble().
 
-rate_tick_once_testX() ->
+rate_tick_once_test() ->
     preamble(),
     ?assertEqual(false, sysRate:is_limiter_running(lim1)),
     sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 500}]),
@@ -48,7 +48,7 @@ rate_tick_once_testX() ->
     ?assertEqual(Expected, Res2),
     postamble().
 
-rate_tick_uneven_testX() ->
+rate_tick_uneven_test() ->
     preamble(),
     ?assertEqual(false, sysRate:is_limiter_running(lim1)),
     sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 300}]),
