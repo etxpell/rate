@@ -136,6 +136,40 @@ run_bucket(Rate, Period) ->
     ExpectedRate = one_decimal(Rate),
     ?assertEqual(ExpectedRate, ActualRate).
 
+
+limiter_crash_restart_test() ->
+    preamble(),
+    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    Res1 = do_n_requests(lim1, 5),
+    Expected = [true, false, false, false, false],
+    ?assertEqual(Expected, Res1),
+    exit(sysRate:limiter_pid(lim1), kill),
+    timer:sleep(100),
+    Res2 = do_n_requests(lim1, 5),
+    ?assertEqual(Expected, Res2),
+    postamble().
+
+
+reconfig_rate_test() ->
+    preamble(),
+    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 500}]),
+    Res1 = do_n_requests(lim1, 5),
+    Expected = [true, false, false, false, false],
+    ?assertEqual(Expected, Res1),
+    sysRate:set_rate(lim1, 2),
+    sysRate:tick(lim1),
+    Res2 = do_n_requests(lim1, 5),
+    Expected2 = [true, true, false, false, false],
+    ?assertEqual(Expected2, Res2),
+    postamble().
+
+
+%% counters for allowed/rejected
+
+
+%%------------------
+%% Utilities
+
 one_decimal(X) ->
     round(X*10) / 10.
     

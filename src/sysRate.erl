@@ -51,6 +51,10 @@
 -export([is_limiter_running/1]).
 -export([is_request_allowed/1]).
 
+-export([set_rate/2]).
+-export([set_period/2]).
+-export([set_burst_limit/2]).
+-export([reset_burst_limit/2]).
 %% -export([status/1]).
 
 %% -export([on/1]).
@@ -64,6 +68,7 @@
 %%------------------
 %% For testing
 -export([tick/1]).
+-export([limiter_pid/1]).
 
 %%------------------
 %% gen_server callbacks
@@ -74,11 +79,11 @@
 -behaviour(gen_server).
 
 -record(s, {things}).
+-record(sysRate, {name, pid, config=[], good=0, reject=0}).
 -record(lim, {state=on, rate=100, period=100, level=0, limit=100, 
               leak_ts=0,
               manual_tick=false,
               auto_burst_limit=true}).
-
 
 %%------------------
 %% The supervision server
@@ -93,6 +98,7 @@ server_call(Req) ->
 
 
 init([]) ->
+    process_flag(trap_exit, true),
     new_pid_table(),
     {ok, #s{}}.
 
@@ -107,6 +113,15 @@ handle_call(_Request, _From, S) ->
 handle_cast(_Msg, S) ->
     {noreply, S}.
 
+handle_info({'EXIT', Pid, _}, S) ->
+    case lookup_limiter_by_pid(Pid) of
+        #sysRate{name=Name, config=Config} ->
+            del_hanging_pid_item(Pid),
+            start_limiter(Name, Config);
+        _ ->
+            ok
+    end,
+    {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
@@ -137,6 +152,18 @@ define(Name, Config) ->
 is_request_allowed(Name) ->
     limiter_call(Name, is_request_allowed).
 
+set_rate(Name, Rate) when is_integer(Rate)->
+    limiter_call(Name, {new_config, [{rate, Rate}]}).
+
+set_period(Name, Period) when is_integer(Period), Period < 1000 ->
+    limiter_call(Name, {new_config, [{period, Period}]}).
+
+set_burst_limit(Name, Limit) when is_integer(Limit) ->
+    limiter_call(Name, {new_config, [{burst_size, Limit}]}).
+
+reset_burst_limit(Name, Limit) when is_integer(Limit) ->
+    limiter_call(Name, {new_config, [auto_burst_size]}).
+
 tick(Name) ->
     limiter_call(Name, tick).
 
@@ -154,16 +181,17 @@ limiter_call2(Pid, Req) when is_pid(Pid) ->
             {error, noproc}
     end;
 limiter_call2(_, _) ->
-    {error, bad_name}.
+    {error, noproc}.
 
 start_limiter(Name, Config) ->
-    ins_pid(Name, spawn_link(fun() -> init_limiter(Name, Config) end)).
+    spawn_link(fun() -> init_limiter(Name, Config) end).
 
 stop_limiter(Pid) ->
     limiter_call(Pid, stop).
 
 init_limiter(Name, Config) ->
     register_limiter_name(Name),
+    ins_pid(Name, self(), Config),
     loop_limiter(init_limiter_state(Config)).
 
 register_limiter_name(Name) ->
@@ -189,6 +217,8 @@ handle_limiter_call(stop, _) ->
     {ok, stop};
 handle_limiter_call(tick, Lim) ->
     {ok, timer_tick(Lim)};
+handle_limiter_call({new_config, Config}, Lim) ->
+    {ok, reconfig_action(update_limiter_config(Lim, Config))};
 handle_limiter_call(is_request_allowed, Lim) ->
     case is_bucket_below_limit(Lim) of
         true ->
@@ -220,7 +250,9 @@ configuration_help() ->
      "would have the effect that the 10*Rate first requests are not limited "
      "at all while the rest are limited to rate."].
      
-     
+reconfig_action(Lim) ->     
+    Lim.
+
 update_limiter_config(Lim, Config) ->
     lists:foldl(fun(C, A) -> update_one_config_item(C, A) end,
                 Lim,
@@ -230,6 +262,8 @@ update_one_config_item({rate, Rate}, Lim) ->
     maybe_update_burst_limit(Lim#lim{rate=Rate});
 update_one_config_item({burst_size, Level}, Lim) ->    
     Lim#lim{limit=Level, auto_burst_limit=false};
+update_one_config_item(auto_burst_size, Lim) -> 
+    maybe_update_burst_limit(Lim#lim{auto_burst_limit=true});
 update_one_config_item({period, Time}, Lim) -> 
     Lim#lim{period=Time};
 update_one_config_item(manual_tick, Lim) -> 
@@ -245,14 +279,31 @@ maybe_update_burst_limit(Lim) ->
 is_limiter_running(Name) ->    
     is_pid(limiter_pid(Name)).
 
-ins_pid(Name, Pid) ->
-    ets:insert(pid_table_name(), {Name, Pid}).
+ins_pid(Name, Pid, Config) ->
+    ets:insert(pid_table_name(), [#sysRate{name=Name, pid=Pid, config=Config},
+                                  #sysRate{name=Pid, pid=Name}]).
+
+lookup_limiter_by_pid(Pid) ->
+    case pid_tab_lookup(Pid) of
+        #sysRate{pid=Name} -> pid_tab_lookup(Name);
+        _ -> undefined
+    end.
+
+pid_tab_lookup(Key) ->
+    case ets:lookup(pid_table_name(), Key) of
+        [R] -> R;
+        _ -> undefined
+    end.
+
+del_hanging_pid_item(Pid) ->
+    ets:delete(pid_table_name(), Pid).
 
 new_pid_table() ->
-    ets:new(pid_table_name(), [set, public, named_table]).    
+    ets:new(pid_table_name(), [set, public, named_table, 
+                               {keypos, #sysRate.name}]).    
 
 del_all_pids() ->
-    [stop_limiter(Pid) || {_, Pid} <- all_pids()].
+    [stop_limiter(R#sysRate.pid) || R <- all_pids(), is_pid(R#sysRate.pid)].
 
 all_pids() ->
     ets:tab2list(pid_table_name()).
