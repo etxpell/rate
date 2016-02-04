@@ -51,6 +51,8 @@
 -export([is_limiter_running/1]).
 -export([is_request_allowed/1]).
 -export([read_counters/1]).
+-export([read_counter_good/1]).
+-export([read_counter_rejected/1]).
 
 -export([set_rate/2]).
 -export([set_period/2]).
@@ -155,7 +157,14 @@ is_request_allowed(Name) ->
     limiter_call(Name, is_request_allowed).
 
 read_counters(Name) ->
-    limiter_call(Name, read_counters).
+    read_counter(Name, all).
+read_counter_good(Name) ->
+    read_counter(Name, good).
+read_counter_rejected(Name) ->
+    read_counter(Name, rejected).
+
+read_counter(Name, Spec) ->
+    limiter_call(Name, {read_counter, Spec}).
 
 set_rate(Name, Rate) when is_integer(Rate)->
     limiter_call(Name, {new_config, [{rate, Rate}]}).
@@ -218,8 +227,8 @@ loop_limiter(Lim) ->
             loop_limiter(NewLim)
     end.
     
-handle_limiter_call(read_counters, Lim) ->
-    {get_counters(Lim), Lim};
+handle_limiter_call({read_counter, Spec}, Lim) ->
+    {get_counter(Spec, Lim), Lim};
 handle_limiter_call(is_request_allowed, Lim) ->
     case is_bucket_below_limit(Lim) of
         true ->
@@ -383,7 +392,11 @@ timestamp_add_wrap_on_second(TS, AddMs) ->
 
 %% -----------------------------
 %% the counters
-get_counters(#lim{good=Good, rejected=Rej}) ->
+get_counter(good, #lim{good=Good}) ->
+    Good;
+get_counter(rejected, #lim{rejected=Rej}) ->
+    Rej;
+get_counter(all, #lim{good=Good, rejected=Rej}) ->
     {Good, Rej}.
 
 inc_good(Lim=#lim{good=Good}) ->
