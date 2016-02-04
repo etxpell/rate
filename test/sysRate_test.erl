@@ -173,6 +173,8 @@ counter_good_test() ->
     ?assertEqual(Expected, Res1),
     Counters = sysRate:read_counters(lim1),
     ?assertEqual({1,0}, Counters),
+    ?assertEqual(1,  sysRate:read_counter_good(lim1)),
+    ?assertEqual(0,  sysRate:read_counter_rejected(lim1)),
     postamble().
 
 counter_reject_test() ->
@@ -183,6 +185,8 @@ counter_reject_test() ->
     ?assertEqual(Expected, Res1),
     Counters = sysRate:read_counters(lim1),
     ?assertEqual({1,1}, Counters),
+    ?assertEqual(1,  sysRate:read_counter_good(lim1)),
+    ?assertEqual(1,  sysRate:read_counter_rejected(lim1)),
     postamble().
 
 
