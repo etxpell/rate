@@ -164,7 +164,6 @@ reconfig_rate_test() ->
     postamble().
 
 
-%% counters for allowed/rejected
 counter_good_test() ->
     preamble(),
     sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
@@ -188,6 +187,39 @@ counter_reject_test() ->
     ?assertEqual(1,  sysRate:read_counter_good(lim1)),
     ?assertEqual(1,  sysRate:read_counter_rejected(lim1)),
     postamble().
+
+
+two_limiters_test() ->
+    preamble(),
+    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    sysRate:define(lim2, [{rate, 6}, manual_tick, {period, 100}]),
+    Res1a = do_n_requests(lim1, 5),
+    Expected1a = [true, false, false, false, false],
+    ?assertEqual(Expected1a, Res1a),
+    Res2a = do_n_requests(lim2, 7),
+    Expected2a = [true, true, true, true, true, true, false],
+    ?assertEqual(Expected2a, Res2a),
+    sysRate:tick(lim1),
+    ?assertEqual([false], do_n_requests(lim2, 1)),
+
+    Res1b = do_n_requests(lim1, 5),
+    Expected1b = [false, false, false, false, false],
+    ?assertEqual(Expected1b, Res1b),
+    sysRate:tick(lim2),
+    Res2b = do_n_requests(lim2, 7),
+    Expected2b = [true, false, false, false, false, false, false],
+    ?assertEqual(Expected2b, Res2b),
+
+    CounterExpect1 = {1, 9},
+    ?assertEqual(CounterExpect1, sysRate:read_counters(lim1)),
+    CounterExpect2 = {7, 8},
+    ?assertEqual(CounterExpect2, sysRate:read_counters(lim2)),
+    
+
+
+    postamble().
+
+
 
 
 
