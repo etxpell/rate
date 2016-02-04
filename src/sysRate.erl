@@ -50,6 +50,7 @@
 -export([define/2]).
 -export([is_limiter_running/1]).
 -export([is_request_allowed/1]).
+-export([read_counters/1]).
 
 -export([set_rate/2]).
 -export([set_period/2]).
@@ -79,11 +80,12 @@
 -behaviour(gen_server).
 
 -record(s, {things}).
--record(sysRate, {name, pid, config=[], good=0, reject=0}).
+-record(sysRate, {name, pid, config=[]}).
 -record(lim, {state=on, rate=100, period=100, level=0, limit=100, 
               leak_ts=0,
               manual_tick=false,
-              auto_burst_limit=true}).
+              auto_burst_limit=true,
+              good=0, rejected=0}).
 
 %%------------------
 %% The supervision server
@@ -152,6 +154,9 @@ define(Name, Config) ->
 is_request_allowed(Name) ->
     limiter_call(Name, is_request_allowed).
 
+read_counters(Name) ->
+    limiter_call(Name, read_counters).
+
 set_rate(Name, Rate) when is_integer(Rate)->
     limiter_call(Name, {new_config, [{rate, Rate}]}).
 
@@ -213,19 +218,23 @@ loop_limiter(Lim) ->
             loop_limiter(NewLim)
     end.
     
-handle_limiter_call(stop, _) ->
-    {ok, stop};
+handle_limiter_call(read_counters, Lim) ->
+    {get_counters(Lim), Lim};
+handle_limiter_call(is_request_allowed, Lim) ->
+    case is_bucket_below_limit(Lim) of
+        true ->
+            {true, inc_bucket_level(inc_good(Lim))};
+        _ ->
+            {false, inc_rejected(Lim)}
+    end;
 handle_limiter_call(tick, Lim) ->
     {ok, timer_tick(Lim)};
 handle_limiter_call({new_config, Config}, Lim) ->
     {ok, reconfig_action(update_limiter_config(Lim, Config))};
-handle_limiter_call(is_request_allowed, Lim) ->
-    case is_bucket_below_limit(Lim) of
-        true ->
-            {true, inc_bucket_level(Lim)};
-        _ ->
-            {false, Lim}
-    end.
+handle_limiter_call(stop, _) ->
+    {ok, stop}.
+
+
 
 send_call_answer({Pid, Ref}, Ans) ->
     Pid ! {answer, Ref, Ans}.
@@ -371,7 +380,18 @@ timestamp_add_wrap_on_second(TS, AddMs) ->
         X when X >= 1000 -> X -1000;
         X -> X
     end.
-             
+
+%% -----------------------------
+%% the counters
+get_counters(#lim{good=Good, rejected=Rej}) ->
+    {Good, Rej}.
+
+inc_good(Lim=#lim{good=Good}) ->
+    Lim#lim{good=Good+1}.
+
+inc_rejected(Lim=#lim{rejected=Rej}) ->
+    Lim#lim{rejected=Rej+1}.
+
 %% -----------------------------
 %% timestamp primitives
 ts_ms() ->

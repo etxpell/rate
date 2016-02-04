@@ -165,6 +165,26 @@ reconfig_rate_test() ->
 
 
 %% counters for allowed/rejected
+counter_good_test() ->
+    preamble(),
+    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    Res1 = do_n_requests(lim1, 1),
+    Expected = [true],
+    ?assertEqual(Expected, Res1),
+    Counters = sysRate:read_counters(lim1),
+    ?assertEqual({1,0}, Counters),
+    postamble().
+
+counter_reject_test() ->
+    preamble(),
+    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    Res1 = do_n_requests(lim1, 2),
+    Expected = [true, false],
+    ?assertEqual(Expected, Res1),
+    Counters = sysRate:read_counters(lim1),
+    ?assertEqual({1,1}, Counters),
+    postamble().
+
 
 
 %%------------------
