@@ -215,11 +215,26 @@ two_limiters_test() ->
     CounterExpect2 = {7, 8},
     ?assertEqual(CounterExpect2, sysRate:read_counters(lim2)),
     
-
-
     postamble().
 
 
+two_limiters_list_test() ->
+    preamble(),
+    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    Res1 = sysRate:list_all_limiters(),
+    ?assertMatch([{{sysRate, lim1, _, _}, {0,0}}], Res1),
+
+    sysRate:define(lim2, [{rate, 3}, manual_tick, {period, 100}]),
+    Res2 = sysRate:list_all_limiters(),
+    ?assertMatch([{{sysRate, lim1, _, _}, {0,0}}, 
+                  {{sysRate, lim2, _, _}, {0,0}}], 
+                 lists:sort(Res2)),
+    
+    %% sysRate:define(lim2, [{rate, 6}, manual_tick, {period, 100}]),
+    %% Res1a = do_n_requests(lim1, 5),
+    %% Expected1a = [true, false, false, false, false],
+
+    postamble().
 
 
 

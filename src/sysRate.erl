@@ -63,7 +63,7 @@
 %% -export([on/1]).
 %% -export([off/1]). 
 %% -export([clear/1]).
-%% -export([list_all_limiters/0]).
+-export([list_all_limiters/0]).
 %% -export([print_all_limiters/0]).
 %% -export([is_below_limit/1]).
 
@@ -108,6 +108,8 @@ init([]) ->
 
 handle_call({define, Name, Config}, _From, S) ->
     {reply, start_limiter(Name, Config), S};
+handle_call(list_all_limiters, _From, S) ->
+    {reply, do_list_all_limiters(), S};
 handle_call(stop, _From, S) ->
     {stop, normal, ok, S};
 handle_call(_Request, _From, S) ->
@@ -153,6 +155,9 @@ define_help() ->
 define(Name, Config) ->
     server_call({define, Name, Config}).
 
+list_all_limiters() ->
+    server_call(list_all_limiters).
+
 is_request_allowed(Name) ->
     limiter_call(Name, is_request_allowed).
 
@@ -178,8 +183,10 @@ set_burst_limit(Name, Limit) when is_integer(Limit) ->
 reset_burst_limit(Name, Limit) when is_integer(Limit) ->
     limiter_call(Name, {new_config, [auto_burst_size]}).
 
+
 tick(Name) ->
     limiter_call(Name, tick).
+
 
 limiter_call(Name, Req) ->
     limiter_call2(limiter_pid(Name), Req).
@@ -321,10 +328,14 @@ new_pid_table() ->
                                {keypos, #sysRate.name}]).    
 
 del_all_pids() ->
-    [stop_limiter(R#sysRate.pid) || R <- all_pids(), is_pid(R#sysRate.pid)].
+    [stop_limiter(R#sysRate.pid) || R <- all_limiters()].
 
-all_pids() ->
+all_limiters() ->
+    [Lim  || Lim <- all_table(), is_pid(Lim#sysRate.pid)].
+
+all_table() ->
     ets:tab2list(pid_table_name()).
+
 
 pid_table_name() ->
     sysRate_pids.
@@ -389,6 +400,13 @@ timestamp_add_wrap_on_second(TS, AddMs) ->
         X when X >= 1000 -> X -1000;
         X -> X
     end.
+
+do_list_all_limiters() ->
+    add_the_counters(all_limiters()).
+
+add_the_counters(L) ->
+    [{X, read_counters(X#sysRate.pid)} || X <- L].
+    
 
 %% -----------------------------
 %% the counters
