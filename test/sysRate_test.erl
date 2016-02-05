@@ -237,6 +237,30 @@ two_limiters_list_test() ->
     postamble().
 
 
+on_off_test() ->
+    preamble(),
+    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 500}]),
+    ExpectedOne = [true, false, false, false, false],
+    ExpectedNone = [false, false, false, false, false],
+    ExpectedAll = [true, true, true, true, true],
+
+    Res1 = do_n_requests(lim1, 5),
+    ?assertEqual(ExpectedOne, Res1),
+    
+    sysRate:off(lim1),
+
+    Res2 = do_n_requests(lim1, 5),
+    ?assertEqual(ExpectedAll, Res2),
+
+    sysRate:on(lim1),
+    Res3 = do_n_requests(lim1, 5),
+    ?assertEqual(ExpectedOne, Res3),
+    
+    sysRate:tick(lim1),
+    Res4 = do_n_requests(lim1, 5),
+    ?assertEqual(ExpectedOne, Res4),
+    postamble().
+
 
 %%------------------
 %% Utilities

@@ -58,10 +58,9 @@
 -export([set_period/2]).
 -export([set_burst_limit/2]).
 -export([reset_burst_limit/2]).
-%% -export([status/1]).
 
-%% -export([on/1]).
-%% -export([off/1]). 
+-export([on/1]).
+-export([off/1]). 
 %% -export([clear/1]).
 -export([list_all_limiters/0]).
 %% -export([print_all_limiters/0]).
@@ -85,7 +84,7 @@
 -record(sysRate, {name, pid, config=[]}).
 -record(lim, {state=on, rate=100, period=100, level=0, limit=100, 
               leak_ts=0,
-              manual_tick=false,
+              manual_tick=false, timer,
               auto_burst_limit=true,
               good=0, rejected=0}).
 
@@ -172,16 +171,29 @@ read_counter(Name, Spec) ->
     limiter_call(Name, {read_counter, Spec}).
 
 set_rate(Name, Rate) when is_integer(Rate)->
-    limiter_call(Name, {new_config, [{rate, Rate}]}).
+    new_config_call(Name, {rate, Rate}).
 
 set_period(Name, Period) when is_integer(Period), Period < 1000 ->
-    limiter_call(Name, {new_config, [{period, Period}]}).
+    new_config_call(Name, {period, Period}).
 
 set_burst_limit(Name, Limit) when is_integer(Limit) ->
-    limiter_call(Name, {new_config, [{burst_size, Limit}]}).
+    new_config_call(Name, {burst_size, Limit}).
 
 reset_burst_limit(Name, Limit) when is_integer(Limit) ->
-    limiter_call(Name, {new_config, [auto_burst_size]}).
+    new_config_call(Name, auto_burst_size).
+
+on(Name) -> 
+    new_config_call(Name, {state, on}).
+
+off(Name) -> 
+    new_config_call(Name, {state, off}).
+
+new_config_call(Name, Config) when not is_list(Config) ->
+    new_config_call(Name, [Config]);
+new_config_call(Name, Config) when is_list(Config) ->
+    limiter_call(Name, {new_config, Config}).
+    
+
 
 
 tick(Name) ->
@@ -279,10 +291,20 @@ reconfig_action(Lim) ->
     Lim.
 
 update_limiter_config(Lim, Config) ->
+    Lim2 = update_limiter_config_items(Lim, Config),
+    reconfig_action(Lim2).
+
+update_limiter_config_items(Lim, Config) ->
     lists:foldl(fun(C, A) -> update_one_config_item(C, A) end,
                 Lim,
                 Config).
 
+clear_limiter(Lim) ->
+    cancel_timer(Lim#lim{level=0}).
+
+cancel_timer(Lim) ->
+    Lim.
+    
 update_one_config_item({rate, Rate}, Lim) ->    
     maybe_update_burst_limit(Lim#lim{rate=Rate});
 update_one_config_item({burst_size, Level}, Lim) ->    
@@ -291,6 +313,8 @@ update_one_config_item(auto_burst_size, Lim) ->
     maybe_update_burst_limit(Lim#lim{auto_burst_limit=true});
 update_one_config_item({period, Time}, Lim) -> 
     Lim#lim{period=Time};
+update_one_config_item({state, State}, Lim) -> 
+    clear_limiter(Lim#lim{state=State});
 update_one_config_item(manual_tick, Lim) -> 
     Lim#lim{manual_tick=true};
 update_one_config_item(_, Lim) -> 
@@ -344,10 +368,11 @@ pid_table_name() ->
 %%------------------
 %% Lowlevel bucket stuff
 
-is_bucket_below_limit(#lim{level=Level, limit=Limit}) when Level < Limit ->
-    true;
+is_bucket_below_limit(#lim{state=on, level=Level, limit=Limit}) 
+  when Level >= Limit ->
+    false;
 is_bucket_below_limit(_) ->
-    false.
+    true.
 
 inc_bucket_level(Lim=#lim{level=Level}) ->
     Lim#lim{level=Level+1}.
