@@ -291,7 +291,7 @@ send_call_answer({Pid, Ref}, Ans) ->
     Pid ! {answer, Ref, Ans}.
 
 init_limiter_state(Name, Config) ->
-    update_limiter_config(#lim{name=Name}, Config).
+    reconfig_action(update_limiter_config(#lim{name=Name}, Config)).
 
 pretty_lim(Lim) ->
     Vals = tl(tuple_to_list(Lim)),
@@ -379,10 +379,23 @@ maybe_update_burst_limit(Lim) ->
 clear_limiter(Lim) ->
     cancel_timer(Lim#lim{level=0}).
 
-cancel_timer(Lim) ->
-    Lim.
-    
-is_limiter_running(Name) ->    
+start_timer(Lim=#lim{manual_tick=true}) ->
+    Lim;
+start_timer(Lim=#lim{period=Time}) ->
+    Lim#lim{timer=start_timer(Time, tick)}.
+
+start_timer(Time, Msg) ->
+    erlang:send_after(Time, self(), Msg).
+
+cancel_timer(Lim=#lim{timer=Timer}) ->
+    Lim#lim{timer=cancel_timer(Timer)};
+cancel_timer(Timer) when is_reference(Timer) ->
+    erlang:cancel_timer(Timer),
+    undefined;
+cancel_timer(_) ->
+    undefined.
+
+is_limiter_running(Name) ->
     is_pid(limiter_pid(Name)).
 
 update_pid_table(#lim{name=Name}, NewConfig) ->
@@ -463,8 +476,8 @@ is_bucket_below_limit(_) ->
 inc_bucket_level(Lim=#lim{level=Level}) ->
     Lim#lim{level=Level+1}.
 
-timer_tick(Lim=#lim{manual_tick=true}) ->
-    leak(timestamp_for_tick(Lim), Lim).
+timer_tick(Lim) ->
+    start_timer(leak(timestamp_for_tick(Lim), Lim)).
 
 leak(NewTS, Lim=#lim{level=Level}) ->
     Leak = calc_leak(NewTS, Lim),

@@ -6,6 +6,8 @@
 
 
 
+%%------------------
+%% Simple meter cases
 
 start_stop_test() ->
     Res = sysRate:start_link(),
@@ -301,6 +303,24 @@ update_bad_config_test() ->
     ?assertMatch({error, {badarg, _}}, Res),
     ?assertEqual(true, sysRate:is_limiter_running(lim1)),
     postamble().
+
+real_timer_leak_test() ->
+    preamble(),
+    sysRate:create(lim1, [{rate, 2}, {period, 100}]),
+    Res1 = do_n_requests(lim1, 5),
+    Ok1 = ok_count(Res1),
+    %% Since the timer runs and leaks we could have 2 or 3 allowed
+    ?assertEqual(true, (Ok1 == 2) orelse (Ok1 == 3)),
+    timer:sleep(200),
+    Res2 = do_n_requests(lim1, 5),
+    Ok2 = ok_count(Res2),
+    %% Since the timer runs and leaks we could have 2 or 3 allowed
+    ?assertEqual(true, (Ok2 == 2) orelse (Ok2 == 3)),
+    postamble().
+    
+
+%%------------------
+%% Prio queue cases
 
 prio_create_test() ->
     preamble(),
