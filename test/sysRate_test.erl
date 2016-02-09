@@ -261,6 +261,14 @@ on_off_test() ->
     ?assertEqual(ExpectedOne, Res4),
     postamble().
 
+prio_create_test() ->
+    preamble(),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 200},
+                          {type, prio}]),
+
+    ?assertEqual(true, sysRate:is_limiter_running(lim1)),
+
+    postamble().
 
 %%------------------
 %% Utilities

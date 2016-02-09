@@ -82,11 +82,14 @@
 
 -record(s, {things}).
 -record(sysRate, {name, pid, config=[]}).
--record(lim, {state=on, rate=100, period=100, level=0, limit=100, 
+-record(lim, {state=on, type=meter,
+              rate=100, period=100, level=0, limit=100, 
               leak_ts=0,
               manual_tick=false, timer,
               auto_burst_limit=true,
-              good=0, rejected=0}).
+              queue_type=lifo,
+              good=0, rejected=0,
+              spare1, spare2}).
 
 %%------------------
 %% The supervision server
@@ -147,9 +150,18 @@ create_help() ->
      "Example sysRate:create({netid, 4}, [{rate, 20}]).",
      "which creates a bucket that will allow 20 requests per second",
      "",
-     "The bucket does not buffer requests, but is simply a counter. It
-     is what is called a meter on the wikipedia page for leaky
-     buckets"].
+     "The bucket comes in two flavours, a simple rate enforcer, and a "
+     "more complex prioritized queue flow limiter",
+     "",
+     "The simple bucket does not buffer requests, but is simply a counter. "
+     "It is what is called a meter on the wikipedia page for leaky "
+     "buckets.",
+     "",
+     "The complex bucket accepts priority and timeout for requests. The "
+     "intention is to supply the same priorities and times as for PLC, but "
+     "any set of priorities may really be used. Note that, just as PLC, "
+     "priorities goes backwards, i.e., priority=0 is the best and "
+     "priority=100 the worst (i.e., served only if no other in the queue)"].
 
 create(Name, Config) ->
     server_call({create, Name, Config}).
@@ -285,7 +297,19 @@ configuration_help() ->
      "i.e., requests gets rejected even though the average rate is less "
      "than configured. A seriously too high burst limit (like 10*Rate) "
      "would have the effect that the 10*Rate first requests are not limited "
-     "at all while the rest are limited to rate."].
+     "at all while the rest are limited to rate."
+     "  {type, meter | priority} -  set the bucket type to either the simple "
+     "non-buffering meter type, or the buffering prioritized queue type. "
+     "Default type is meter",
+     "  {queue_type, lifo | fifo} - only applicable to the prioritized type. "
+     "The queue may be a LIFO or a FIFO. The upside of a LIFO is that during "
+     "rate limiting, the allowed request is the one with the lowest latency. "
+     "The downside is that requests are reordered within a given priority. "
+     "The upside and downside of a FIFO is the exact opposite, i.e., "
+     "the allowed request is the one with the highest latency, and the "
+     "requests within a given priority is not reordered. Note that requests "
+     "with different priority is likely to be  reordered during rate limiting. "
+     "Default is LIFO."].
      
 reconfig_action(Lim) ->     
     Lim.
@@ -316,9 +340,7 @@ update_one_config_item({period, Time}, Lim) ->
 update_one_config_item({state, State}, Lim) -> 
     clear_limiter(Lim#lim{state=State});
 update_one_config_item(manual_tick, Lim) -> 
-    Lim#lim{manual_tick=true};
-update_one_config_item(_, Lim) -> 
-    Lim.
+    Lim#lim{manual_tick=true}.
 
 maybe_update_burst_limit(Lim=#lim{rate=Rate, auto_burst_limit=true}) ->
     Lim#lim{limit=Rate};
