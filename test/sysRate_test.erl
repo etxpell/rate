@@ -149,6 +149,19 @@ limiter_crash_restart_test() ->
     ?assertEqual(Expected, Res2),
     postamble().
 
+limiter_config_survives_crash_test() ->
+    preamble(),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    ?assertMatch([_, _, _, {rate, 1}|_], sysRate:list_limiter(lim1)),
+    Res1 = do_n_requests(lim1, 5),
+    Expected = [true, false, false, false, false],
+    ?assertEqual(Expected, Res1),
+    exit(sysRate:limiter_pid(lim1), kill),
+    timer:sleep(100),
+    Res2 = do_n_requests(lim1, 5),
+    ?assertEqual(Expected, Res2),
+    postamble().
+
 
 reconfig_rate_test() ->
     preamble(),
