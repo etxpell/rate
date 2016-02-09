@@ -22,7 +22,7 @@ define_test() ->
     preamble(),
     ResFalse = sysRate:is_limiter_running(lim1),
     ?assertEqual(false, ResFalse),
-    sysRate:define(lim1, []),
+    sysRate:create(lim1, []),
     ResTrue = sysRate:is_limiter_running(lim1),
     ?assertEqual(true, ResTrue),
     postamble().
@@ -30,7 +30,7 @@ define_test() ->
 simple_rate_test() ->
     preamble(),
     ?assertEqual(false, sysRate:is_limiter_running(lim1)),
-    sysRate:define(lim1, [{rate, 1}, manual_tick]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick]),
     Res = do_n_requests(lim1, 5),
     Expected = [true, false, false, false, false],
     ?assertEqual(Expected, Res),
@@ -39,7 +39,7 @@ simple_rate_test() ->
 rate_tick_once_test() ->
     preamble(),
     ?assertEqual(false, sysRate:is_limiter_running(lim1)),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 500}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 500}]),
     Res1 = do_n_requests(lim1, 5),
     Expected = [true, false, false, false, false],
     ?assertEqual(Expected, Res1),
@@ -51,7 +51,7 @@ rate_tick_once_test() ->
 rate_tick_uneven_test() ->
     preamble(),
     ?assertEqual(false, sysRate:is_limiter_running(lim1)),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 300}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 300}]),
     ExpectedOne = [true, false, false],
     ExpectedNone = [false, false, false],
     
@@ -126,7 +126,7 @@ check_many_high_rates_test_() ->
       {"dummy", fun() -> ok end} ]}.
 
 run_bucket(Rate, Period) ->
-    sysRate:define(lim1, [{rate, Rate}, manual_tick, {period, Period}]),
+    sysRate:create(lim1, [{rate, Rate}, manual_tick, {period, Period}]),
     Revoultions = 20*(1+round(1000 / Period)),
     TotTime = ((Revoultions)*Period/1000),
     Ok = ok_count(tl(do_run_bucket(lim1, Revoultions, Rate))),
@@ -139,7 +139,7 @@ run_bucket(Rate, Period) ->
 
 limiter_crash_restart_test() ->
     preamble(),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
     Res1 = do_n_requests(lim1, 5),
     Expected = [true, false, false, false, false],
     ?assertEqual(Expected, Res1),
@@ -152,7 +152,7 @@ limiter_crash_restart_test() ->
 
 reconfig_rate_test() ->
     preamble(),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 500}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 500}]),
     Res1 = do_n_requests(lim1, 5),
     Expected = [true, false, false, false, false],
     ?assertEqual(Expected, Res1),
@@ -166,7 +166,7 @@ reconfig_rate_test() ->
 
 counter_good_test() ->
     preamble(),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
     Res1 = do_n_requests(lim1, 1),
     Expected = [true],
     ?assertEqual(Expected, Res1),
@@ -178,7 +178,7 @@ counter_good_test() ->
 
 counter_reject_test() ->
     preamble(),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
     Res1 = do_n_requests(lim1, 2),
     Expected = [true, false],
     ?assertEqual(Expected, Res1),
@@ -191,8 +191,8 @@ counter_reject_test() ->
 
 two_limiters_test() ->
     preamble(),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
-    sysRate:define(lim2, [{rate, 6}, manual_tick, {period, 100}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    sysRate:create(lim2, [{rate, 6}, manual_tick, {period, 100}]),
     Res1a = do_n_requests(lim1, 5),
     Expected1a = [true, false, false, false, false],
     ?assertEqual(Expected1a, Res1a),
@@ -220,17 +220,17 @@ two_limiters_test() ->
 
 two_limiters_list_test() ->
     preamble(),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
     Res1 = sysRate:list_all_limiters(),
     ?assertMatch([{{sysRate, lim1, _, _}, {0,0}}], Res1),
 
-    sysRate:define(lim2, [{rate, 3}, manual_tick, {period, 100}]),
+    sysRate:create(lim2, [{rate, 3}, manual_tick, {period, 100}]),
     Res2 = sysRate:list_all_limiters(),
     ?assertMatch([{{sysRate, lim1, _, _}, {0,0}}, 
                   {{sysRate, lim2, _, _}, {0,0}}], 
                  lists:sort(Res2)),
     
-    %% sysRate:define(lim2, [{rate, 6}, manual_tick, {period, 100}]),
+    %% sysRate:create(lim2, [{rate, 6}, manual_tick, {period, 100}]),
     %% Res1a = do_n_requests(lim1, 5),
     %% Expected1a = [true, false, false, false, false],
 
@@ -239,7 +239,7 @@ two_limiters_list_test() ->
 
 on_off_test() ->
     preamble(),
-    sysRate:define(lim1, [{rate, 1}, manual_tick, {period, 500}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 500}]),
     ExpectedOne = [true, false, false, false, false],
     ExpectedNone = [false, false, false, false, false],
     ExpectedAll = [true, true, true, true, true],

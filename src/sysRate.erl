@@ -47,7 +47,7 @@
 
 %%------------------
 %% The bucket interface
--export([define/2]).
+-export([create/2]).
 -export([is_limiter_running/1]).
 -export([is_request_allowed/1]).
 -export([read_counters/1]).
@@ -105,7 +105,7 @@ init([]) ->
     new_pid_table(),
     {ok, #s{}}.
 
-handle_call({define, Name, Config}, _From, S) ->
+handle_call({create, Name, Config}, _From, S) ->
     {reply, start_limiter(Name, Config), S};
 handle_call(list_all_limiters, _From, S) ->
     {reply, do_list_all_limiters(), S};
@@ -141,18 +141,18 @@ code_change(_OldVsn, S, _Extra) ->
 
 %%------------------
 %% The bucket
-define_help() ->
-    ["defines a rate limit bucket.",
+create_help() ->
+    ["creates a rate limit bucket.",
      "Name is term(), Config is bucket configuration property list",
-     "Example sysRate:define({netid, 4}, [{rate, 20}]).",
-     "which defines a bucket that will allow 20 requests per second",
+     "Example sysRate:create({netid, 4}, [{rate, 20}]).",
+     "which creates a bucket that will allow 20 requests per second",
      "",
      "The bucket does not buffer requests, but is simply a counter. It
      is what is called a meter on the wikipedia page for leaky
      buckets"].
 
-define(Name, Config) ->
-    server_call({define, Name, Config}).
+create(Name, Config) ->
+    server_call({create, Name, Config}).
 
 list_all_limiters() ->
     server_call(list_all_limiters).
