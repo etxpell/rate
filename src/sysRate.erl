@@ -282,6 +282,7 @@ handle_limiter_call(tick, Lim) ->
 handle_limiter_call(list, Lim) ->
     {pretty_lim(Lim), Lim};
 handle_limiter_call({new_config, Config}, Lim) ->
+    update_pid_table(Lim, Config),
     {ok, reconfig_action(update_limiter_config(Lim, Config))};
 handle_limiter_call(stop, _) ->
     {ok, stop}.
@@ -334,9 +335,8 @@ is_config_ok(Config) ->
         Err -> Err
     end.
 
-update_limiter_config(Lim, Config) ->
-    Lim2 = update_limiter_config_items(Lim, Config),
-    reconfig_action(Lim2).
+update_limiter_config(Lim, NewConfig) ->
+    update_limiter_config_items(Lim, NewConfig).
 
 update_limiter_config_items(Lim, Config) ->
     %% We update the accumulator as long as it stays a lim record,
@@ -365,7 +365,9 @@ update_one_config_item({type, Type}, Lim)
   when (Type==meter) ; (Type == prio) -> 
     clear_limiter(Lim#lim{type=Type});
 update_one_config_item(manual_tick, Lim) -> 
-    Lim#lim{manual_tick=true};
+    update_one_config_item({manual_tick, true}, Lim);
+update_one_config_item({manual_tick, Bool}, Lim) when is_boolean(Bool) -> 
+    Lim#lim{manual_tick=Bool};
 update_one_config_item(What, _Lim) -> 
     {error, {badarg, What}}.
 
@@ -383,11 +385,31 @@ cancel_timer(Lim) ->
 is_limiter_running(Name) ->    
     is_pid(limiter_pid(Name)).
 
-ins_pid(Name, Pid, Config) ->
-    ets:insert(pid_table_name(), [#sysRate{name=Name, pid=Pid, config=Config},
-                                  #sysRate{name=Pid, pid=Name}]).
+update_pid_table(#lim{name=Name}, NewConfig) ->
+    R = pid_tab_lookup_or_create(Name),
+    ins_pid(merge_config(R, NewConfig)).
 
-lookup_limiter_by_pid(Pid) ->
+merge_config(R=#sysRate{config=OldConfig}, NewConfig) ->
+    R#sysRate{config=merge_config(OldConfig, NewConfig)};
+merge_config(Old, New) ->
+    MergeFun = fun(C, A) -> merge_one_config_item(C, A) end,
+    lists:foldl(MergeFun, Old, New).
+
+merge_one_config_item(X, A) when is_atom(X) ->
+    case lists:member(X, A) of
+        true -> A;
+        _ -> [X|A]
+    end;
+merge_one_config_item(New={T,_}, A) ->
+    lists:keystore(T, 1, A, New).
+
+ins_pid(Name, Pid, Config) ->
+    ins_pid(#sysRate{name=Name, pid=Pid, config=Config}).
+
+ins_pid(R=#sysRate{name=Name, pid=Pid}) ->
+    ets:insert(pid_table_name(), [R, #sysRate{name=Pid, pid=Name}]).
+
+lookup_limiter_by_pid(Pid) when is_pid(Pid) ->
     case pid_tab_lookup(Pid) of
         #sysRate{pid=Name} -> pid_tab_lookup(Name);
         _ -> undefined
@@ -397,6 +419,12 @@ pid_tab_lookup(Key) ->
     case ets:lookup(pid_table_name(), Key) of
         [R] -> R;
         _ -> undefined
+    end.
+
+pid_tab_lookup_or_create(Name) ->
+    case pid_tab_lookup(Name) of
+        R=#sysRate{} -> R;
+        _ -> #sysRate{name=Name, pid=self()}
     end.
 
 del_hanging_pid_item(Pid) ->
