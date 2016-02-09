@@ -62,6 +62,7 @@
 -export([on/1]).
 -export([off/1]). 
 %% -export([clear/1]).
+-export([list_limiter/1]).
 -export([list_all_limiters/0]).
 %% -export([print_all_limiters/0]).
 %% -export([is_below_limit/1]).
@@ -82,12 +83,13 @@
 
 -record(s, {things}).
 -record(sysRate, {name, pid, config=[]}).
--record(lim, {state=on, type=meter,
-              rate=100, period=100, level=0, limit=100, 
-              leak_ts=0,
-              manual_tick=false, timer,
+-record(lim, {name, state=on, type=meter,
+              rate=100, period=100, 
+              level=0, limit=100, 
               auto_burst_limit=true,
               queue_type=lifo,
+              manual_tick=false, 
+              leak_ts=0, timer,
               good=0, rejected=0,
               spare1, spare2}).
 
@@ -211,6 +213,8 @@ new_config_call(Name, Config) when is_list(Config) ->
         Err -> Err
     end.
 
+list_limiter(Name) ->
+    limiter_call(Name, list).
 
 
 
@@ -243,7 +247,7 @@ stop_limiter(Pid) ->
 init_limiter(Name, Config) ->
     register_limiter_name(Name),
     ins_pid(Name, self(), Config),
-    loop_limiter(init_limiter_state(Config)).
+    loop_limiter(init_limiter_state(Name, Config)).
 
 register_limiter_name(Name) ->
     %% change the register into sysProc
@@ -275,19 +279,23 @@ handle_limiter_call(is_request_allowed, Lim) ->
     end;
 handle_limiter_call(tick, Lim) ->
     {ok, timer_tick(Lim)};
+handle_limiter_call(list, Lim) ->
+    {pretty_lim(Lim), Lim};
 handle_limiter_call({new_config, Config}, Lim) ->
     {ok, reconfig_action(update_limiter_config(Lim, Config))};
 handle_limiter_call(stop, _) ->
     {ok, stop}.
 
-
-
 send_call_answer({Pid, Ref}, Ans) ->
     Pid ! {answer, Ref, Ans}.
 
-init_limiter_state(Config) ->
-    update_limiter_config(#lim{}, Config).
+init_limiter_state(Name, Config) ->
+    update_limiter_config(#lim{name=Name}, Config).
 
+pretty_lim(Lim) ->
+    Vals = tl(tuple_to_list(Lim)),
+    lists:zip(record_info(fields, lim), Vals).
+    
 
 %%------------------
 %% Configuration stuff
@@ -399,10 +407,13 @@ new_pid_table() ->
                                {keypos, #sysRate.name}]).    
 
 del_all_pids() ->
-    [stop_limiter(R#sysRate.pid) || R <- all_limiters()].
+    [stop_limiter(Pid) || Pid <- all_limiter_pids()].
+
+all_limiter_pids() ->
+    [R#sysRate.pid  || R <- all_limiters()].
 
 all_limiters() ->
-    [Lim  || Lim <- all_table(), is_pid(Lim#sysRate.pid)].
+    [R  || R <- all_table(), is_pid(R#sysRate.pid)].
 
 all_table() ->
     ets:tab2list(pid_table_name()).
@@ -474,12 +485,8 @@ timestamp_add_wrap_on_second(TS, AddMs) ->
     end.
 
 do_list_all_limiters() ->
-    add_the_counters(all_limiters()).
-
-add_the_counters(L) ->
-    [{X, read_counters(X#sysRate.pid)} || X <- L].
+    sort([list_limiter(P) || P <- all_limiter_pids()]).
     
-
 %% -----------------------------
 %% the counters
 get_counter(good, #lim{good=Good}) ->
@@ -503,5 +510,8 @@ ts() ->
     os:timestamp().
 
 
+%% -----------------------------
+%% utilities
+sort(L) -> lists:sort(L).
 
 

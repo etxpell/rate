@@ -218,22 +218,29 @@ two_limiters_test() ->
     postamble().
 
 
+list_all_limiters_list_test() ->
+    preamble(),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
+    Res = sysRate:list_all_limiters(),
+    ?assertMatch([_], Res),
+    Lim = hd(Res),
+    ?assertMatch([{name, lim1}, {state, on}, {type, meter}, {rate, 1} |_],
+                 Lim),
+    ?assertEqual(0, gv(good, Lim)),
+    ?assertEqual(0, gv(rejected, Lim)).
+
+
 two_limiters_list_test() ->
     preamble(),
     sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
     Res1 = sysRate:list_all_limiters(),
-    ?assertMatch([{{sysRate, lim1, _, _}, {0,0}}], Res1),
-
+    ?assertMatch([[{name, lim1} |_]], Res1),
+    
     sysRate:create(lim2, [{rate, 3}, manual_tick, {period, 100}]),
     Res2 = sysRate:list_all_limiters(),
-    ?assertMatch([{{sysRate, lim1, _, _}, {0,0}}, 
-                  {{sysRate, lim2, _, _}, {0,0}}], 
-                 lists:sort(Res2)),
-    
-    %% sysRate:create(lim2, [{rate, 6}, manual_tick, {period, 100}]),
-    %% Res1a = do_n_requests(lim1, 5),
-    %% Expected1a = [true, false, false, false, false],
-
+    ?assertMatch([[{name, lim1}, _, _, {rate, 1} |_],
+                  [{name, lim2}, _, _, {rate, 3} |_]],
+                 Res2),
     postamble().
 
 
@@ -314,6 +321,7 @@ do_n_requests(LimiterName, N) ->
     [sysRate:is_request_allowed(LimiterName) || _ <- lists:seq(1, N)].
 
 preamble() ->
+    catch postamble(),
     sysRate:start_link().
 
 postamble() ->
@@ -321,4 +329,6 @@ postamble() ->
 
 flat(L) -> lists:flatten(L).
     
-
+gv(K, L) -> gv(K, L, undefined).
+gv(K, L, Def) -> proplists:get_value(K, L, Def).
+    
