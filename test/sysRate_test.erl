@@ -261,6 +261,29 @@ on_off_test() ->
     ?assertEqual(ExpectedOne, Res4),
     postamble().
 
+create_bad_period_config_test() ->
+    preamble(),
+    Res = sysRate:create(lim1, [{period, 2000}]),
+    ?assertMatch({error, {badarg, _}}, Res),
+    ?assertEqual(false, sysRate:is_limiter_running(lim1)),
+    postamble().
+
+create_bad_config_test() ->
+    preamble(),
+    Res = sysRate:create(lim1, [{typeX, prio}]),
+    ?assertMatch({error, {badarg, _}}, Res),
+    ?assertEqual(false, sysRate:is_limiter_running(lim1)),
+    postamble().
+
+update_bad_config_test() ->
+    preamble(),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 200}]),
+    ?assertEqual(true, sysRate:is_limiter_running(lim1)),
+    Res = sysRate:set_period(lim1, 2000),
+    ?assertMatch({error, {badarg, _}}, Res),
+    ?assertEqual(true, sysRate:is_limiter_running(lim1)),
+    postamble().
+
 prio_create_test() ->
     preamble(),
     sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 200},

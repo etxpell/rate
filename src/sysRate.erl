@@ -57,7 +57,7 @@
 -export([set_rate/2]).
 -export([set_period/2]).
 -export([set_burst_limit/2]).
--export([reset_burst_limit/2]).
+-export([reset_burst_limit/1]).
 
 -export([on/1]).
 -export([off/1]). 
@@ -164,7 +164,10 @@ create_help() ->
      "priority=100 the worst (i.e., served only if no other in the queue)"].
 
 create(Name, Config) ->
-    server_call({create, Name, Config}).
+    case is_config_ok(Config) of
+        ok -> server_call({create, Name, Config});
+        Err -> Err
+    end.
 
 list_all_limiters() ->
     server_call(list_all_limiters).
@@ -182,16 +185,16 @@ read_counter_rejected(Name) ->
 read_counter(Name, Spec) ->
     limiter_call(Name, {read_counter, Spec}).
 
-set_rate(Name, Rate) when is_integer(Rate)->
+set_rate(Name, Rate) ->
     new_config_call(Name, {rate, Rate}).
 
-set_period(Name, Period) when is_integer(Period), Period < 1000 ->
+set_period(Name, Period) ->
     new_config_call(Name, {period, Period}).
 
-set_burst_limit(Name, Limit) when is_integer(Limit) ->
+set_burst_limit(Name, Limit) ->
     new_config_call(Name, {burst_size, Limit}).
 
-reset_burst_limit(Name, Limit) when is_integer(Limit) ->
+reset_burst_limit(Name) ->
     new_config_call(Name, auto_burst_size).
 
 on(Name) -> 
@@ -203,8 +206,11 @@ off(Name) ->
 new_config_call(Name, Config) when not is_list(Config) ->
     new_config_call(Name, [Config]);
 new_config_call(Name, Config) when is_list(Config) ->
-    limiter_call(Name, {new_config, Config}).
-    
+    case is_config_ok(Config) of
+        ok  -> limiter_call(Name, {new_config, Config});
+        Err -> Err
+    end.
+
 
 
 
@@ -314,14 +320,51 @@ configuration_help() ->
 reconfig_action(Lim) ->     
     Lim.
 
+is_config_ok(Config) ->
+    case update_limiter_config(#lim{}, Config) of
+        #lim{} -> ok;
+        Err -> Err
+    end.
+
 update_limiter_config(Lim, Config) ->
     Lim2 = update_limiter_config_items(Lim, Config),
     reconfig_action(Lim2).
 
 update_limiter_config_items(Lim, Config) ->
-    lists:foldl(fun(C, A) -> update_one_config_item(C, A) end,
-                Lim,
-                Config).
+    %% We update the accumulator as long as it stays a lim record,
+    %% otherwise it's an error and we just pass that through.
+    UpdateFun = fun(C, A) when is_record(Lim, lim) -> 
+                        update_one_config_item(C, A);
+                   (_C, A) -> 
+                        A 
+                end,
+    lists:foldl(UpdateFun, Lim, Config).
+
+update_one_config_item({rate, Rate}, Lim) 
+  when is_integer(Rate) , (Rate > 0) ->    
+    maybe_update_burst_limit(Lim#lim{rate=Rate});
+update_one_config_item({burst_size, Level}, Lim) ->    
+    Lim#lim{limit=Level, auto_burst_limit=false};
+update_one_config_item(auto_burst_size, Lim) -> 
+    maybe_update_burst_limit(Lim#lim{auto_burst_limit=true});
+update_one_config_item({period, Time}, Lim) 
+  when is_integer(Time) , (Time > 0) , (Time < 1000) -> 
+    Lim#lim{period=Time};
+update_one_config_item({state, State}, Lim) 
+  when (State==on) ; (State == off) -> 
+    clear_limiter(Lim#lim{state=State});
+update_one_config_item({type, Type}, Lim) 
+  when (Type==meter) ; (Type == prio) -> 
+    clear_limiter(Lim#lim{type=Type});
+update_one_config_item(manual_tick, Lim) -> 
+    Lim#lim{manual_tick=true};
+update_one_config_item(What, _Lim) -> 
+    {error, {badarg, What}}.
+
+maybe_update_burst_limit(Lim=#lim{rate=Rate, auto_burst_limit=true}) ->
+    Lim#lim{limit=Rate};
+maybe_update_burst_limit(Lim) ->
+    Lim.
 
 clear_limiter(Lim) ->
     cancel_timer(Lim#lim{level=0}).
@@ -329,24 +372,6 @@ clear_limiter(Lim) ->
 cancel_timer(Lim) ->
     Lim.
     
-update_one_config_item({rate, Rate}, Lim) ->    
-    maybe_update_burst_limit(Lim#lim{rate=Rate});
-update_one_config_item({burst_size, Level}, Lim) ->    
-    Lim#lim{limit=Level, auto_burst_limit=false};
-update_one_config_item(auto_burst_size, Lim) -> 
-    maybe_update_burst_limit(Lim#lim{auto_burst_limit=true});
-update_one_config_item({period, Time}, Lim) -> 
-    Lim#lim{period=Time};
-update_one_config_item({state, State}, Lim) -> 
-    clear_limiter(Lim#lim{state=State});
-update_one_config_item(manual_tick, Lim) -> 
-    Lim#lim{manual_tick=true}.
-
-maybe_update_burst_limit(Lim=#lim{rate=Rate, auto_burst_limit=true}) ->
-    Lim#lim{limit=Rate};
-maybe_update_burst_limit(Lim) ->
-    Lim.
-
 is_limiter_running(Name) ->    
     is_pid(limiter_pid(Name)).
 
