@@ -50,6 +50,7 @@
 -export([create/2]).
 -export([is_limiter_running/1]).
 -export([is_request_allowed/1]).
+-export([is_request_allowed/2]).
 -export([read_counters/1]).
 -export([read_counter_good/1]).
 -export([read_counter_rejected/1]).
@@ -175,7 +176,9 @@ list_all_limiters() ->
     server_call(list_all_limiters).
 
 is_request_allowed(Name) ->
-    limiter_call(Name, is_request_allowed).
+    is_request_allowed(Name, 0).
+is_request_allowed(Name, Prio) ->
+    limiter_call(Name, {is_request_allowed, Prio}).
 
 read_counters(Name) ->
     read_counter(Name, all).
@@ -273,8 +276,8 @@ loop_limiter(Lim) ->
     
 handle_limiter_call({read_counter, Spec}, Lim) ->
     {get_counter(Spec, Lim), Lim};
-handle_limiter_call(is_request_allowed, Lim) ->
-    case is_bucket_below_limit(Lim) of
+handle_limiter_call({is_request_allowed, Prio}, Lim) ->
+    case is_bucket_below_limit(Prio, Lim) of
         true ->
             {true, inc_bucket_level(inc_good(Lim))};
         _ ->
@@ -475,10 +478,11 @@ pid_table_name() ->
 %%------------------
 %% Lowlevel bucket stuff
 
-is_bucket_below_limit(#lim{state=on, level=Level, limit=Limit}) 
+is_bucket_below_limit(Prio, #lim{state=on, level=Level, limit=Limit}) 
   when Level >= Limit ->
+%%  when Level >= round(Limit+(Limit*Prio/2)) ->
     false;
-is_bucket_below_limit(_) ->
+is_bucket_below_limit(_, _) ->
     true.
 
 inc_bucket_level(Lim=#lim{level=Level}) ->
