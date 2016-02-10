@@ -262,6 +262,9 @@ loop_limiter(stop) ->
     ok;
 loop_limiter(Lim) ->
     receive
+        tick ->
+            NewLim = timer_tick(Lim),
+            loop_limiter(NewLim);
         {call, From, Req} ->
             {Res, NewLim} = handle_limiter_call(Req, Lim),
             send_call_answer(From, Res),
@@ -291,13 +294,15 @@ send_call_answer({Pid, Ref}, Ans) ->
     Pid ! {answer, Ref, Ans}.
 
 init_limiter_state(Name, Config) ->
-    reconfig_action(update_limiter_config(#lim{name=Name}, Config)).
+    seq(#lim{name=Name},
+        [fun(L2) -> update_limiter_config(L2, Config) end,
+         fun update_leak_ts/1,
+         fun reconfig_action/1]).
 
 pretty_lim(Lim) ->
     Vals = tl(tuple_to_list(Lim)),
     lists:zip(record_info(fields, lim), Vals).
     
-
 %%------------------
 %% Configuration stuff
 
@@ -327,7 +332,7 @@ configuration_help() ->
      "Default is LIFO."].
      
 reconfig_action(Lim) ->     
-    Lim.
+    restart_timer(Lim).
 
 is_config_ok(Config) ->
     case update_limiter_config(#lim{}, Config) of
@@ -378,6 +383,9 @@ maybe_update_burst_limit(Lim) ->
 
 clear_limiter(Lim) ->
     cancel_timer(Lim#lim{level=0}).
+
+restart_timer(Lim) ->
+    start_timer(cancel_timer(Lim)).
 
 start_timer(Lim=#lim{manual_tick=true}) ->
     Lim;
@@ -477,14 +485,17 @@ inc_bucket_level(Lim=#lim{level=Level}) ->
     Lim#lim{level=Level+1}.
 
 timer_tick(Lim) ->
-    start_timer(leak(timestamp_for_tick(Lim), Lim)).
+    start_timer(leak(Lim)).
 
-leak(NewTS, Lim=#lim{level=Level}) ->
-    Leak = calc_leak(NewTS, Lim),
+leak(Lim) ->
+    NewLim = update_leak_ts(Lim),
+    update_level_with_leak(NewLim, calc_leak(NewLim, Lim)).
+
+update_level_with_leak(Lim=#lim{level=Level}, Leak) ->
     NewLevel = max((Level-Leak), 0),
-    Lim#lim{leak_ts=NewTS, level=NewLevel}.
+    Lim#lim{level=NewLevel}.
 
-calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
+calc_leak(#lim{leak_ts=NewTS, rate=Rate}, #lim{leak_ts=OldTS}) ->
     %% If OldTS > NewTS then we have just passed the second mark. In
     %% that case we should make sure that the total rate for the last
     %% second is correct by adjusting so that the whole rate has been
@@ -510,6 +521,9 @@ calc_leak(NewTS, #lim{leak_ts=OldTS, rate=Rate}) ->
 
 time_to_leak(Time, Rate) ->
     round(Time*Rate/1000).
+
+update_leak_ts(Lim) ->
+    Lim#lim{leak_ts=timestamp_for_tick(Lim)}.
 
 timestamp_for_tick(Lim=#lim{manual_tick=true}) ->
     timestamp_for_manual_tick(Lim);
@@ -546,13 +560,26 @@ inc_rejected(Lim=#lim{rejected=Rej}) ->
 %% -----------------------------
 %% timestamp primitives
 ts_ms() ->
-    element(3, ts()) div 1000.
+    round(element(3, ts()) / 1000).
 ts() ->
     os:timestamp().
 
 
+%%-------------------
+%% Run a number of functions sequentially.
+seq([H|R]) -> seq(H(), R).
+
+seq(Res={error, _}, _) ->
+    Res;
+seq(Data, [H|R]) ->
+    seq(H(Data), R);
+seq(Data, []) ->
+    Data.
+
+
 %% -----------------------------
-%% utilities
+%% simple utilities / shortcuts
+
 sort(L) -> lists:sort(L).
 
 

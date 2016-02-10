@@ -41,13 +41,14 @@ simple_rate_test() ->
 rate_tick_once_test() ->
     preamble(),
     ?assertEqual(false, sysRate:is_limiter_running(lim1)),
-    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 500}]),
+    sysRate:create(lim1, [{rate, 2}, manual_tick, {period, 500}]),
     Res1 = do_n_requests(lim1, 5),
-    Expected = [true, false, false, false, false],
-    ?assertEqual(Expected, Res1),
+    Expected1 = [true, true, false, false, false],
+    ?assertEqual(Expected1, Res1),
     sysRate:tick(lim1),
     Res2 = do_n_requests(lim1, 5),
-    ?assertEqual(Expected, Res2),
+    Expected2 = [true, false, false, false, false],
+    ?assertEqual(Expected2, Res2),
     postamble().
 
 rate_tick_uneven_test() ->
@@ -61,19 +62,19 @@ rate_tick_uneven_test() ->
     ?assertEqual(ExpectedOne, Res1),
     sysRate:tick(lim1),
     Res2 = do_n_requests(lim1, 3),
-    ?assertEqual(ExpectedNone, Res2),
+    ?assertEqual(ExpectedOne, Res2),
     sysRate:tick(lim1),
     Res3 = do_n_requests(lim1, 3),
-    ?assertEqual(ExpectedOne, Res3),
+    ?assertEqual(ExpectedNone, Res3),
     sysRate:tick(lim1),
     Res4 = do_n_requests(lim1, 3),
     ?assertEqual(ExpectedNone, Res4),
     sysRate:tick(lim1),
     Res5 = do_n_requests(lim1, 3),
-    ?assertEqual(ExpectedNone, Res5),
+    ?assertEqual(ExpectedOne, Res5),
     sysRate:tick(lim1),
     Res6 = do_n_requests(lim1, 3),
-    ?assertEqual(ExpectedOne, Res6),
+    ?assertEqual(ExpectedNone, Res6),
 
     postamble().
 
@@ -205,7 +206,7 @@ counter_reject_test() ->
 two_limiters_test() ->
     preamble(),
     sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 100}]),
-    sysRate:create(lim2, [{rate, 6}, manual_tick, {period, 100}]),
+    sysRate:create(lim2, [{rate, 6}, manual_tick, {period, 200}]),
     Res1a = do_n_requests(lim1, 5),
     Expected1a = [true, false, false, false, false],
     ?assertEqual(Expected1a, Res1a),
@@ -259,7 +260,7 @@ two_limiters_list_test() ->
 
 on_off_test() ->
     preamble(),
-    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 500}]),
+    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 400}]),
     ExpectedOne = [true, false, false, false, false],
     ExpectedNone = [false, false, false, false, false],
     ExpectedAll = [true, true, true, true, true],
@@ -311,11 +312,11 @@ real_timer_leak_test() ->
     Ok1 = ok_count(Res1),
     %% Since the timer runs and leaks we could have 2 or 3 allowed
     ?assertEqual(true, (Ok1 == 2) orelse (Ok1 == 3)),
-    timer:sleep(200),
+    timer:sleep(600),
     Res2 = do_n_requests(lim1, 5),
     Ok2 = ok_count(Res2),
     %% Since the timer runs and leaks we could have 2 or 3 allowed
-    ?assertEqual(true, (Ok2 == 2) orelse (Ok2 == 3)),
+    ?assertEqual(true, (Ok2 == 1) orelse (Ok2 == 2)),
     postamble().
     
 
