@@ -567,7 +567,7 @@ ts() ->
 
 %%-------------------
 %% Run a number of functions sequentially.
-seq([H|R]) -> seq(H(), R).
+%% seq([H|R]) -> seq(H(), R).
 
 seq(Res={error, _}, _) ->
     Res;
