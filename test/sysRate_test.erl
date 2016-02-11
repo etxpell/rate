@@ -148,28 +148,30 @@ check_many_rates_prio_test_() ->
       {"rate=10, period=50",
        fun() -> run_bucket_prio(10, 50) end},
       {"rate=10, period=73",
-       fun() -> run_bucket(10, 73) end},
+       fun() -> run_bucket_prio(10, 73) end},
       {"rate=10, period=100",
-       fun() -> run_bucket(10, 100) end},
+       fun() -> run_bucket_prio(10, 100) end},
       {"rate=10, period=200",
-       fun() -> run_bucket(10, 200) end},
+       fun() -> run_bucket_prio(10, 200) end},
       {"rate=10, period=300",
-       fun() -> run_bucket(10, 300) end},
+       fun() -> run_bucket_prio(10, 300) end},
       {"rate=10, period=130",
-       fun() -> run_bucket(10, 130) end},
+       fun() -> run_bucket_prio(10, 130) end},
       {"rate=10, period=470",
-       fun() -> run_bucket(10, 470) end},
+       fun() -> run_bucket_prio(10, 470) end},
       {"rate=10, period=512",
-       fun() -> run_bucket(10, 512) end},
+       fun() -> run_bucket_prio(10, 512) end},
       {"rate=10, period=830",
-       fun() -> run_bucket(10, 830) end},
+       fun() -> run_bucket_prio(10, 830) end},
       {"dummy", fun() -> ok end} ]}.
 
 run_bucket_prio(Rate, Period) ->
     sysRate:create(lim1, [{rate, Rate}, manual_tick, {period, Period}]),
-    Revoultions = 20*(1+round(1000 / Period)),
-    TotTime = ((Revoultions)*Period/1000),
-    Ok = ok_count(tl(do_run_bucket_prio(lim1, Revoultions, Rate))),
+    Revolutions = 20*(1+round(1000 / Period)),
+    TotTime = ((Revolutions)*Period/1000),
+    %% +1 on Revs because we skip the first period due to burst_size
+    %% interference
+    Ok = ok_count(tl(do_run_bucket_prio(lim1, Revolutions+1, Rate))),
     ActualRate = one_decimal(Ok/(TotTime)),
     %% io:format("Revs: ~p, tot time: ~p, tot: ~p, rate: ~p~n", 
     %%           [Revoultions, TotTime, Ok, ActualRate]),
@@ -298,7 +300,6 @@ on_off_test() ->
     preamble(),
     sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 400}]),
     ExpectedOne = [true, false, false, false, false],
-    ExpectedNone = [false, false, false, false, false],
     ExpectedAll = [true, true, true, true, true],
 
     Res1 = do_n_requests(lim1, 5),
@@ -389,6 +390,65 @@ calc_limits_100_test() ->
     Res = sysRate:calc_limits(100),
     ?assertEqual({100, 150, 160, 170, 180, 190, 200}, Res).
 
+prio_mixed_w_normal_test() ->
+    preamble(),
+    Rate = 20,
+    Period = 200,
+    Revolutions = 50,
+    TotTime = ((Revolutions)*Period/1000),
+    PrioList = create_mixed_prio_list(1+round(1.5*(Rate*Period/1000)),
+                                      [1,1,1,1,1,1,2]),
+    
+    sysRate:create(lim1, [{rate, Rate}, manual_tick, {period, Period}]),
+
+    Res = do_run_bucket_prio_mixed(lim1, Revolutions, PrioList),
+    Res1 = ok_count_per_prio(Res),
+    [{1, {Ok1, _}}, {2, {Ok2, Rej2}}] = Res1,
+    io:format(user, "Res: ~p, TotTime ~p~n", [Res1, TotTime]),
+
+    ActualRate1 = one_decimal(Ok1/(TotTime)),
+    ActualRate2 = one_decimal(Ok2/(TotTime)),
+    
+    ExpectedRate1 = one_decimal(15),
+    ExpectedRate2 = one_decimal(5),
+
+    ?assertEqual(ExpectedRate1, ActualRate1),
+    ?assertEqual(ExpectedRate2, ActualRate2),
+    
+    ?assertEqual(0, Rej2),
+    
+    postamble().
+
+prio_mixed_w_normal_50_50_test() ->
+    preamble(),
+    Rate = 20,
+    Period = 200,
+    Revolutions = 50,
+    TotTime = ((Revolutions)*Period/1000),
+    PrioList = create_mixed_prio_list(1+round(1.5*(Rate*Period/1000)),
+                                      [1,2,1,2,1,2,1,2]),
+    
+    sysRate:create(lim1, [{rate, Rate}, manual_tick, {period, Period}]),
+
+    Res = do_run_bucket_prio_mixed(lim1, Revolutions, PrioList),
+    Res1 = ok_count_per_prio(Res),
+    [{1, {Ok1, _}}, {2, {Ok2, Rej2}}] = Res1,
+    io:format(user, "Res: ~p, TotTime ~p~n", [Res1, TotTime]),
+
+    ActualRate1 = one_decimal(Ok1/(TotTime)),
+    ActualRate2 = one_decimal(Ok2/(TotTime)),
+    
+    ExpectedRate1 = one_decimal(5),
+    ExpectedRate2 = one_decimal(15),
+
+    ?assertEqual(ExpectedRate1, ActualRate1),
+    ?assertEqual(ExpectedRate2, ActualRate2),
+    
+    ?assertEqual(0, Rej2),
+    
+    postamble().
+
+
 mk_expected(Tot, NumExpected) ->
     Good = lists:duplicate(NumExpected, true),
     Bad  = lists:duplicate(Tot-NumExpected, false),
@@ -405,6 +465,28 @@ one_decimal(X) ->
 ok_count(L) ->
     length(lists:filter(fun(X) -> X end, flat(L))).
 
+ok_count_per_prio(L) ->
+    count_per_prio(partition_into_prios(flat(L))).
+
+partition_into_prios([]) ->
+    [];
+partition_into_prios(L = [{Prio, _} |_]) ->
+    IsThisPrio = fun({A,_}) when A==Prio -> true;
+                    (_) -> false end,
+    {ThisPrio, Rest} = lists:partition(IsThisPrio, L),
+    [{Prio, remove_prio_tag(ThisPrio)} | partition_into_prios(Rest)].
+
+remove_prio_tag(L) ->    
+    [element(2, T) || T <- L].
+
+count_per_prio(L) ->
+    [count_for_one_prio(X) || X <- L].
+
+count_for_one_prio({Prio, L}) ->
+    OkCount = ok_count(L),
+    {Prio, {OkCount, length(L)-OkCount}}.
+
+
 do_run_bucket(Lim, 0, Rate) ->
     Res = do_n_requests(Lim, 2*Rate),
     [Res];
@@ -416,9 +498,8 @@ do_run_bucket(Lim, Revs, Rate) ->
 do_n_requests(LimiterName, N) ->
     [sysRate:is_request_allowed(LimiterName) || _ <- lists:seq(1, N)].
 
-do_run_bucket_prio(Lim, 0, Rate) ->
-    Res = do_n_requests_prio(Lim, 2*Rate, 2),
-    [Res];
+do_run_bucket_prio(_Lim, 0, _Rate) ->
+    [];
 do_run_bucket_prio(Lim, Revs, Rate) ->
     Res = do_n_requests_prio(Lim, 2*Rate, 2),
     sysRate:tick(Lim),
@@ -426,6 +507,29 @@ do_run_bucket_prio(Lim, Revs, Rate) ->
 
 do_n_requests_prio(LimiterName, N, Prio) ->
     [sysRate:is_request_allowed(LimiterName, Prio) || _ <- lists:seq(1, N)].
+
+
+create_mixed_prio_list(Len, PrioList) ->
+    N = 1+trunc(Len / length(PrioList)),
+    lists:sublist(flat(lists:duplicate(N, PrioList)), Len).
+
+do_run_bucket_prio_mixed(Lim, Revs, PrioList) ->
+    %% Skip the Cutoff first results, because these have interference
+    %% with burst_limit.
+    Cutoff = 10, 
+    Res = do_run_bucket_prio_mixed2(Lim, Revs+Cutoff, PrioList),
+    lists:sublist(Res, Cutoff+1, length(Res)).
+
+do_run_bucket_prio_mixed2(_Lim, 0, _PrioList) ->
+    [];
+do_run_bucket_prio_mixed2(Lim, Revs, PrioList) ->
+    Res = do_n_requests_prio_mixed(Lim, PrioList),
+    sysRate:tick(Lim),
+    [Res | do_run_bucket_prio_mixed2(Lim, Revs-1, PrioList)].
+
+do_n_requests_prio_mixed(LimiterName, PrioList) ->
+    [{Prio, sysRate:is_request_allowed(LimiterName, Prio)} || 
+        Prio <- PrioList].
 
 preamble() ->
     catch postamble(),
