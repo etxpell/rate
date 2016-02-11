@@ -370,17 +370,31 @@ prio_create_test() ->
 
 prio_trumps_normal_test() ->
     preamble(),
-    sysRate:create(lim1, [{rate, 1}, manual_tick, {period, 400}]),
-    ExpectedOne = [true, false, false, false, false],
-    ExpectedNone = [false, false, false, false, false],
-    Res1 = do_n_requests(lim1, 5),
-    ?assertEqual(ExpectedOne, Res1),
-    
-    ResPrio1 = do_n_requests_prio(lim1, 5, 1),
-    ?assertEqual(ExpectedOne, ResPrio1),
+    sysRate:create(lim1, [{rate, 10}, manual_tick, {period, 400}]),
+    ExpectedRate = mk_expected(15, 10),
+    ExpectedTen = mk_expected(10, 5),
+
+    Res1 = do_n_requests(lim1, 15),
+    ?assertEqual(ExpectedRate, Res1),
+    ResPrio1 = do_n_requests_prio(lim1, 10, 2),
+    ?assertEqual(ExpectedTen, ResPrio1),
     
     postamble().
 
+calc_limits_20_test() ->
+    Res = sysRate:calc_limits(20),
+    ?assertEqual({20, 30, 32, 34, 36, 38, 40}, Res).
+
+calc_limits_100_test() ->
+    Res = sysRate:calc_limits(100),
+    ?assertEqual({100, 150, 160, 170, 180, 190, 200}, Res).
+
+mk_expected(Tot, NumExpected) ->
+    Good = lists:duplicate(NumExpected, true),
+    Bad  = lists:duplicate(Tot-NumExpected, false),
+    Good++Bad.
+    
+    
 
 %%------------------
 %% Utilities
@@ -403,10 +417,10 @@ do_n_requests(LimiterName, N) ->
     [sysRate:is_request_allowed(LimiterName) || _ <- lists:seq(1, N)].
 
 do_run_bucket_prio(Lim, 0, Rate) ->
-    Res = do_n_requests_prio(Lim, 2*Rate, 1),
+    Res = do_n_requests_prio(Lim, 2*Rate, 2),
     [Res];
 do_run_bucket_prio(Lim, Revs, Rate) ->
-    Res = do_n_requests_prio(Lim, 2*Rate, 1),
+    Res = do_n_requests_prio(Lim, 2*Rate, 2),
     sysRate:tick(Lim),
     [Res | do_run_bucket_prio(Lim, Revs-1, Rate)].
 

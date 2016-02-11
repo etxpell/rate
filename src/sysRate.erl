@@ -73,6 +73,7 @@
 %% For testing
 -export([tick/1]).
 -export([limiter_pid/1]).
+-export([calc_limits/1]).
 
 %%------------------
 %% gen_server callbacks
@@ -86,7 +87,7 @@
 -record(sysRate, {name, pid, config=[]}).
 -record(lim, {name, state=on, type=meter,
               rate=100, period=100, 
-              level=0, limit=100, 
+              level=0, limits, 
               auto_burst_limit=true,
               queue_type=lifo,
               manual_tick=false, 
@@ -176,8 +177,8 @@ list_all_limiters() ->
     server_call(list_all_limiters).
 
 is_request_allowed(Name) ->
-    is_request_allowed(Name, 0).
-is_request_allowed(Name, Prio) ->
+    is_request_allowed(Name, 1).
+is_request_allowed(Name, Prio) when (Prio > 0) , (Prio =< 7)->
     limiter_call(Name, {is_request_allowed, Prio}).
 
 read_counters(Name) ->
@@ -360,7 +361,7 @@ update_one_config_item({rate, Rate}, Lim)
   when is_integer(Rate) , (Rate > 0) ->    
     maybe_update_burst_limit(Lim#lim{rate=Rate});
 update_one_config_item({burst_size, Level}, Lim) ->    
-    Lim#lim{limit=Level, auto_burst_limit=false};
+    Lim#lim{limits=calc_limits(Level), auto_burst_limit=false};
 update_one_config_item(auto_burst_size, Lim) -> 
     maybe_update_burst_limit(Lim#lim{auto_burst_limit=true});
 update_one_config_item({period, Time}, Lim) 
@@ -380,9 +381,13 @@ update_one_config_item(What, _Lim) ->
     {error, {badarg, What}}.
 
 maybe_update_burst_limit(Lim=#lim{rate=Rate, auto_burst_limit=true}) ->
-    Lim#lim{limit=Rate};
+    Lim#lim{limits=calc_limits(Rate)};
 maybe_update_burst_limit(Lim) ->
     Lim.
+
+calc_limits(Base) ->
+    L = [Base | [round(1.4*Base+Base*(0.1*(P-1))) || P <- lists:seq(2, 7)]],
+    list_to_tuple(L).
 
 clear_limiter(Lim) ->
     cancel_timer(Lim#lim{level=0}).
@@ -478,9 +483,8 @@ pid_table_name() ->
 %%------------------
 %% Lowlevel bucket stuff
 
-is_bucket_below_limit(Prio, #lim{state=on, level=Level, limit=Limit}) 
-  when Level >= Limit ->
-%%  when Level >= round(Limit+(Limit*Prio/2)) ->
+is_bucket_below_limit(Prio, #lim{state=on, level=Level, limits=Limits}) 
+  when Level >= element(Prio, Limits) ->
     false;
 is_bucket_below_limit(_, _) ->
     true.
