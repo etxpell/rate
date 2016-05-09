@@ -70,6 +70,11 @@
 
 
 %%------------------
+%% Online help
+-export([help/0]).
+-export([create_help/0]).
+
+%%------------------
 %% For testing
 -export([tick/1]).
 -export([limiter_pid/1]).
@@ -106,6 +111,8 @@ stop() ->
 server_call(Req) ->
     gen_server:call(?MODULE, Req).
 
+help() ->
+    sysHelp:help(?MODULE).
 
 init([]) ->
     process_flag(trap_exit, true),
@@ -504,28 +511,22 @@ update_level_with_leak(Lim=#lim{level=Level}, Leak) ->
     Lim#lim{level=NewLevel}.
 
 calc_leak(#lim{leak_ts=NewTS, rate=Rate}, #lim{leak_ts=OldTS}) ->
+    LeakUpTillNewTS = time_to_leak(NewTS, Rate),
+
     %% If OldTS > NewTS then we have just passed the second mark. In
     %% that case we should make sure that the total rate for the last
     %% second is correct by adjusting so that the whole rate has been
     %% used.
-    LeakAdjustFromPrevSecond = 
-        if OldTS > NewTS -> 
-                LeakedPrevsecond=time_to_leak(OldTS, Rate),
-                Rate - LeakedPrevsecond;
-           true ->
-                0
-        end,
-    
-    %% Start calculating leak from 0 when we have passed the second
-    %% mark.
-    LeakedSoFar = if OldTS > NewTS -> 0;
-		     true -> time_to_leak(OldTS, Rate)
-		  end,
-    
-    LeakUpTillNewTS = time_to_leak(NewTS, Rate),
-    
-    Leak = LeakUpTillNewTS - LeakedSoFar + LeakAdjustFromPrevSecond,
-    Leak.
+    if OldTS > NewTS -> 
+            LeakedPrevsecond = time_to_leak(OldTS, Rate),
+            LeakAdjustFromPrevSecond = Rate - LeakedPrevsecond,
+            Leak = LeakUpTillNewTS + LeakAdjustFromPrevSecond,
+            Leak;
+       true ->
+            LeakedSoFar = time_to_leak(OldTS, Rate),
+            Leak = LeakUpTillNewTS - LeakedSoFar,
+            Leak
+    end.
 
 time_to_leak(Time, Rate) ->
     round(Time*Rate/1000).
