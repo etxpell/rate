@@ -1,45 +1,6 @@
-%%% ----------------------------------------------------------
-%%% #0.    BASIC INFORMATION
-%%% ----------------------------------------------------------
-%%% %CCaseFile:	regBucket.erl %
-%%% Author:	etxpell
-%%% Description: A leaky bucket used for regulating spontaneous delets
-%%%	and PBX commands towargds core network
-%%%
-%%% Modules used:    
-%%%
-%%% ----------------------------------------------------------
-
 -module(sysRate).
--id('39/190 55-CNA 113 206 Ux').
--vsn('/main/R6A_1/R9B/R10A/R12A/R14A/R15A/R18A/R19A/3').
 
-%%% ----------------------------------------------------------
-%%% %CCaseTemplateFile:	module.erl %
-%%% %CCaseTemplateId: 53/002 01-LXA 119 334 Ux, Rev: /main/5 %
-%%%
-%%% %CCaseCopyrightBegin%
-%%% Copyright (c) Ericsson AB 2008-2012 All rights reserved.
-%%% 
-%%% The information in this document is the property of Ericsson.
-%%% 
-%%% Except as specifically authorized in writing by Ericsson, the 
-%%% receiver of this document shall keep the information contained 
-%%% herein confidential and shall protect the same in whole or in 
-%%% part from disclosure and dissemination to third parties.
-%%% 
-%%% Disclosure and disseminations to the receivers employees shall 
-%%% only be made on a strict need to know basis.
-%%% %CCaseCopyrightEnd%
-%%%
-%%% ----------------------------------------------------------
-%%% #1.    REVISION LOG
-%%% ----------------------------------------------------------
-%%% Rev    Date        Name     What
-%%% -----  ----------  -------  ------------------------
-%%%
-%%% ----------------------------------------------------------
- 
+
 %%------------------
 %% The supervision server
 -export([start_link/0]).
@@ -73,6 +34,7 @@
 %% Online help
 -export([help/0]).
 -export([create_help/0]).
+-export([configuration_help/0]).
 
 %%------------------
 %% For testing
@@ -226,7 +188,6 @@ new_config_call(Name, Config) when is_list(Config) ->
 
 list_limiter(Name) ->
     limiter_call(Name, list).
-
 
 
 tick(Name) ->
